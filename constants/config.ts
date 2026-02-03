@@ -3,7 +3,7 @@
 
 export const SUPABASE_URL = 'https://iashlxsgjxzlquxliqab.supabase.co';
 export const SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlhc2hseHNnanp6bHF1eGxpcWFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzIzMDE2NDYsImV4cCI6MjA0Nzg3NzY0Nn0.VlSFAz5VlGEUyOIviTBrRMyjdZOEQVU-y0TdaJjoJl4';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlhc2hseHNnanh6bHF1eGxpcWFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ2MDU1MDUsImV4cCI6MjA3MDE4MTUwNX0.-aBp-OqP_T68ZpmBL_KGWZ-73q9sbACHU3i6E6IjeDc';
 
 // App
 export const APP_NAME = 'WordFlow';

@@ -16,19 +16,24 @@ export default function IndexScreen() {
   const router = useRouter();
 
   useEffect(() => {
+    console.log('=== INDEX REDIRECT ===');
+    console.log('initializing:', initializing);
+    console.log('session:', !!session);
+    console.log('user:', !!user, 'onboarding:', user?.onboarding_completo);
+    
     // Esperar inicialização do auth
     if (initializing) return;
 
     // Pequeno delay para splash visual
     const timer = setTimeout(() => {
       if (!session) {
-        // Não logado → login
+        console.log('>>> No session, going to login');
         router.replace('/(auth)/login');
       } else if (!user?.onboarding_completo) {
-        // Logado mas onboarding incompleto → onboarding
+        console.log('>>> Session but no onboarding, going to choose-notebook');
         router.replace('/(onboarding)/choose-notebook');
       } else {
-        // Tudo pronto → app principal
+        console.log('>>> All good, going to home');
         router.replace('/(tabs)/home');
       }
     }, 600);

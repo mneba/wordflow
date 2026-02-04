@@ -1,7 +1,8 @@
 // app/(auth)/login.tsx
 // Tela de login — email + senha com Supabase Auth
+// Redireciona via useEffect quando session muda
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,7 +13,6 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -20,8 +20,8 @@ import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 
 export default function LoginScreen() {
-  const { colors, isDark } = useTheme();
-  const { signIn, loading } = useAuth();
+  const { colors } = useTheme();
+  const { signIn, loading, session, user } = useAuth();
   const router = useRouter();
 
   const [email, setEmail] = useState('');
@@ -31,10 +31,34 @@ export default function LoginScreen() {
 
   const passwordRef = useRef<TextInput>(null);
 
+  // Redirecionar quando sessão mudar (login bem-sucedido)
+  useEffect(() => {
+    if (!session) return;
+    
+    console.log('=== LOGIN REDIRECT ===');
+    console.log('session:', !!session);
+    console.log('user:', user ? JSON.stringify({ id: user.id, nome: user.nome, onboarding: user.onboarding_completo }) : 'null');
+    
+    const timer = setTimeout(() => {
+      try {
+        if (user?.onboarding_completo) {
+          console.log('>>> Navigating to (tabs)/home');
+          router.replace('/(tabs)/home');
+        } else {
+          console.log('>>> Navigating to (onboarding)/choose-notebook');
+          router.replace('/(onboarding)/choose-notebook');
+        }
+      } catch (navError) {
+        console.error('Navigation error:', navError);
+      }
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [session, user]);
+
   async function handleLogin() {
     setErrorMsg('');
 
-    // Validações
     if (!email.trim()) {
       setErrorMsg('Digite seu email');
       return;
@@ -47,16 +71,17 @@ export default function LoginScreen() {
     const { error } = await signIn(email, password);
 
     if (error) {
-      // Traduzir erros comuns do Supabase
       if (error.message.includes('Invalid login credentials')) {
         setErrorMsg('Email ou senha incorretos');
       } else if (error.message.includes('Email not confirmed')) {
         setErrorMsg('Confirme seu email antes de entrar');
+      } else if (error.message.includes('rate limit')) {
+        setErrorMsg('Muitas tentativas. Aguarde um momento.');
       } else {
         setErrorMsg(error.message);
       }
     }
-    // Se sucesso, o AuthProvider detecta a sessão e o index.tsx redireciona
+    // Redirecionamento acontece no useEffect acima quando session muda
   }
 
   return (
@@ -162,7 +187,7 @@ export default function LoginScreen() {
             {/* Erro */}
             {errorMsg ? (
               <View
-                style={[styles.errorBox, { backgroundColor: colors.roseLight }]}
+                style={[styles.errorBox, { backgroundColor: `${colors.rose}15` }]}
               >
                 <Text style={[styles.errorText, { color: colors.rose }]}>
                   {errorMsg}

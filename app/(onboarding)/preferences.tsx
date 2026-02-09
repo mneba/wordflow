@@ -1,6 +1,6 @@
 // app/(onboarding)/preferences.tsx
 // Tela 4 do Onboarding: Preferências
-// Escolhe horário, ativa notificações, salva tudo no Supabase
+// Escolhe horários PROIBIDOS (quando NÃO quer receber), ativa notificações, salva tudo no Supabase
 // Ao finalizar: marca onboarding_completo = true e redireciona para (tabs)/home
 
 import { useState } from 'react';
@@ -11,21 +11,23 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
-  Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/services/supabase';
-import { PERIOD_LABELS, TRIAL } from '@/constants/config';
-import type { UserLevel, UserPeriod } from '@/types';
+import { TRIAL } from '@/constants/config';
+import type { UserLevel } from '@/types';
 
-const PERIODS: { key: UserPeriod; label: string; icon: string; time: string }[] = [
-  { key: 'manha', label: 'Manhã', icon: '☀️', time: '8h – 11h' },
-  { key: 'almoco', label: 'Almoço', icon: '🌤️', time: '12h – 14h' },
-  { key: 'tarde', label: 'Tarde', icon: '🌅', time: '14h – 18h' },
-  { key: 'noite', label: 'Noite', icon: '🌙', time: '19h – 22h' },
+type Periodo = 'manha' | 'tarde' | 'noite';
+
+const PERIODS: { key: Periodo; label: string; icon: string; time: string }[] = [
+  { key: 'manha', label: 'Manhã', icon: '🌅', time: '7h – 12h' },
+  { key: 'tarde', label: 'Tarde', icon: '☀️', time: '12h – 18h' },
+  { key: 'noite', label: 'Noite', icon: '🌙', time: '18h – 23h' },
 ];
+
+const MAX_BLOQUEADOS = 2; // Pode bloquear no máximo 2 (precisa deixar 1 livre)
 
 export default function PreferencesScreen() {
   const { colors } = useTheme();
@@ -36,11 +38,44 @@ export default function PreferencesScreen() {
     nivel_detectado: string;
   }>();
 
-  const [selectedPeriod, setSelectedPeriod] = useState<UserPeriod>('manha');
+  const [proibidos, setProibidos] = useState<Periodo[]>([]);
   const [saving, setSaving] = useState(false);
+
+  // Toggle período proibido
+  const togglePeriodo = (periodo: Periodo) => {
+    setProibidos(prev => {
+      if (prev.includes(periodo)) {
+        // Remover da lista de proibidos (vai receber nesse horário)
+        return prev.filter(p => p !== periodo);
+      } else {
+        // Adicionar aos proibidos (se não exceder máximo)
+        if (prev.length >= MAX_BLOQUEADOS) {
+          Alert.alert(
+            'Limite atingido',
+            'Você precisa deixar pelo menos 1 período livre para receber frases.',
+            [{ text: 'Entendi' }]
+          );
+          return prev;
+        }
+        return [...prev, periodo];
+      }
+    });
+  };
+
+  // Verificar se período está proibido
+  const isProibido = (periodo: Periodo) => proibidos.includes(periodo);
+
+  // Períodos permitidos (para mostrar resumo)
+  const periodosPermitidos = PERIODS.filter(p => !proibidos.includes(p.key));
 
   const handleFinish = async () => {
     if (saving) return;
+
+    if (periodosPermitidos.length === 0) {
+      Alert.alert('Erro', 'Você precisa deixar pelo menos 1 período livre.');
+      return;
+    }
+
     setSaving(true);
 
     try {
@@ -63,7 +98,7 @@ export default function PreferencesScreen() {
         .update({
           nivel: nivel,
           caderno_ativo_id: cadernoId,
-          horario_preferido: selectedPeriod,
+          horarios_proibidos: proibidos,
           onboarding_completo: true,
           status: 'trial',
           trial_inicio: now.toISOString(),
@@ -102,8 +137,8 @@ export default function PreferencesScreen() {
           Quase lá, {nome}! 🎯
         </Text>
         <Text style={[styles.subtitle, { color: colors.text2 }]}>
-          Quando você prefere praticar?{'\n'}
-          Vamos te lembrar no horário certo.
+          Quando você <Text style={{ fontWeight: '700' }}>não</Text> quer ser interrompido?{'\n'}
+          Selecione até 2 períodos para bloquear.
         </Text>
       </View>
 
@@ -115,18 +150,18 @@ export default function PreferencesScreen() {
       {/* Períodos */}
       <View style={styles.periodList}>
         {PERIODS.map((period) => {
-          const isSelected = selectedPeriod === period.key;
+          const blocked = isProibido(period.key);
           return (
             <TouchableOpacity
               key={period.key}
               activeOpacity={0.7}
-              onPress={() => setSelectedPeriod(period.key)}
+              onPress={() => togglePeriodo(period.key)}
               style={[
                 styles.periodCard,
                 {
-                  backgroundColor: isSelected ? colors.accentLight : colors.bgCard,
-                  borderColor: isSelected ? colors.accent : colors.border,
-                  borderWidth: isSelected ? 2 : 1,
+                  backgroundColor: blocked ? colors.roseLight : colors.bgCard,
+                  borderColor: blocked ? colors.rose : colors.border,
+                  borderWidth: blocked ? 2 : 1,
                 },
               ]}
             >
@@ -139,17 +174,36 @@ export default function PreferencesScreen() {
                   {period.time}
                 </Text>
               </View>
-              {isSelected && (
-                <View style={[styles.radioOuter, { borderColor: colors.accent }]}>
-                  <View style={[styles.radioInner, { backgroundColor: colors.accent }]} />
-                </View>
-              )}
-              {!isSelected && (
-                <View style={[styles.radioOuter, { borderColor: colors.text3 }]} />
-              )}
+              <View style={[
+                styles.checkbox,
+                {
+                  backgroundColor: blocked ? colors.rose : 'transparent',
+                  borderColor: blocked ? colors.rose : colors.text3,
+                },
+              ]}>
+                {blocked && (
+                  <Text style={styles.checkboxX}>✕</Text>
+                )}
+              </View>
             </TouchableOpacity>
           );
         })}
+      </View>
+
+      {/* Resumo */}
+      <View style={[styles.resumoCard, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+        <Text style={[styles.resumoLabel, { color: colors.text3 }]}>
+          Você receberá frases:
+        </Text>
+        {periodosPermitidos.length > 0 ? (
+          <Text style={[styles.resumoText, { color: colors.green }]}>
+            {periodosPermitidos.map(p => `${p.icon} ${p.label}`).join('  •  ')}
+          </Text>
+        ) : (
+          <Text style={[styles.resumoText, { color: colors.rose }]}>
+            Nenhum período disponível!
+          </Text>
+        )}
       </View>
 
       {/* Info card */}
@@ -169,9 +223,13 @@ export default function PreferencesScreen() {
       <View style={[styles.bottomBar, { backgroundColor: colors.bg }]}>
         <TouchableOpacity
           activeOpacity={0.8}
-          disabled={saving}
+          disabled={saving || periodosPermitidos.length === 0}
           onPress={handleFinish}
-          style={[styles.finishBtn, { backgroundColor: colors.accent }]}
+          style={[
+            styles.finishBtn,
+            { backgroundColor: colors.accent },
+            periodosPermitidos.length === 0 && { opacity: 0.5 },
+          ]}
         >
           {saving ? (
             <ActivityIndicator color="#FFFFFF" size="small" />
@@ -251,25 +309,45 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
-  radioOuter: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+  checkbox: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     borderWidth: 2,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  radioInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+  checkboxX: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  // Resumo
+  resumoCard: {
+    marginHorizontal: 24,
+    marginTop: 20,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  resumoLabel: {
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  resumoText: {
+    fontSize: 15,
+    fontWeight: '600',
   },
 
   // Info card
   infoCard: {
     flexDirection: 'row',
     marginHorizontal: 24,
-    marginTop: 28,
+    marginTop: 16,
     padding: 16,
     borderRadius: 14,
     borderWidth: 1,

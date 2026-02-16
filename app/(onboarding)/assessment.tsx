@@ -1,64 +1,84 @@
 // app/(onboarding)/assessment.tsx
-// Tela 2 do Onboarding: Avaliação de nível
-// ⚠️ REGRA DE OURO: SEMPRE busca frases do CADERNO PADRÃO (607 frases)
-// Independente do caderno escolhido pelo usuário
-// Mostra frases mistas (básico + intermediário + avançado)
-// Usuário marca as que NÃO conhece
+// MINI-PRÁTICA — Onboarding simplificado
+// 5 frases rápidas para detectar nível automaticamente
+// Fluxo: Registro → Mini-prática → Home
 
 import { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Dimensions,
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useTheme } from '@/context/ThemeContext';
-import { supabase } from '@/services/supabase';
-import type { Frase, UserLevel } from '@/types';
+import { useRouter } from 'expo-router';
+import { Platform } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+  runOnJS,
+} from 'react-native-reanimated';
+import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../services/supabase';
+import type { UserLevel } from '../../types';
 
-interface AssessmentFrase extends Frase {
-  conhece: boolean; // true = conheço, false = não conheço
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+interface FraseAvaliacao {
+  id: string;
+  frase: string;
+  traducao: string;
+  nivel: UserLevel;
 }
+
+type TelaEstado = 'carregando' | 'praticando' | 'calculando' | 'erro';
+
+// Helper para haptics (ignora na web)
+const hapticFeedback = (style: Haptics.ImpactFeedbackStyle) => {
+  if (Platform.OS !== 'web') {
+    Haptics.impactAsync(style);
+  }
+};
 
 export default function AssessmentScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { caderno_id } = useLocalSearchParams<{ caderno_id: string }>();
+  const { user, session, refreshProfile } = useAuth();
 
-  const [frases, setFrases] = useState<AssessmentFrase[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  // Estados
+  const [estado, setEstado] = useState<TelaEstado>('carregando');
+  const [frases, setFrases] = useState<FraseAvaliacao[]>([]);
+  const [fraseAtual, setFraseAtual] = useState(0);
+  const [respostas, setRespostas] = useState<{ id: string; nivel: UserLevel; sabe: boolean }[]>([]);
+  const [erro, setErro] = useState<string | null>(null);
 
-  // Buscar frases mistas do caderno PADRÃO
-  const fetchFrases = useCallback(async (existingIds: string[] = []) => {
+  // Animações
+  const cardOpacity = useSharedValue(1);
+  const cardTranslateX = useSharedValue(0);
+
+  // Buscar 5 frases mistas (2 básica, 2 inter, 1 avançada)
+  const buscarFrases = useCallback(async () => {
     try {
-      // Buscar 4 básico + 4 intermediário + 4 avançado = 12 frases
-      const levels: { nivel: UserLevel; qty: number }[] = [
-        { nivel: 'basico', qty: 4 },
-        { nivel: 'intermediario', qty: 4 },
-        { nivel: 'avancado', qty: 4 },
+      const distribuicao: { nivel: UserLevel; qty: number }[] = [
+        { nivel: 'basico', qty: 2 },
+        { nivel: 'intermediario', qty: 2 },
+        { nivel: 'avancado', qty: 1 },
       ];
 
-      const allFrases: AssessmentFrase[] = [];
+      const todasFrases: FraseAvaliacao[] = [];
 
-      for (const { nivel, qty } of levels) {
-        let query = supabase
+      for (const { nivel, qty } of distribuicao) {
+        const { data, error } = await supabase
           .from('frases')
-          .select('*')
+          .select('id, frase, traducao, nivel')
           .eq('nivel', nivel)
           .eq('status', 'ativa')
-          .limit(qty + 5); // busca extra para filtrar
-
-        // Excluir frases já exibidas
-        if (existingIds.length > 0) {
-          query = query.not('id', 'in', `(${existingIds.join(',')})`);
-        }
-
-        const { data, error } = await query;
+          .limit(qty + 3); // busca extra para embaralhar
 
         if (error) {
           console.error(`Erro buscando ${nivel}:`, error);
@@ -66,441 +86,449 @@ export default function AssessmentScreen() {
         }
 
         if (data) {
-          // Embaralhar e pegar a quantidade certa
-          const shuffled = data.sort(() => Math.random() - 0.5).slice(0, qty);
-          allFrases.push(
-            ...shuffled.map((f) => ({
-              ...f,
-              conhece: true, // default: conheço
-            }))
-          );
+          const embaralhadas = data.sort(() => Math.random() - 0.5).slice(0, qty);
+          todasFrases.push(...embaralhadas.map(f => ({
+            ...f,
+            nivel: f.nivel as UserLevel,
+          })));
         }
       }
 
-      // Embaralhar resultado final
-      return allFrases.sort(() => Math.random() - 0.5);
+      // Embaralhar ordem final
+      return todasFrases.sort(() => Math.random() - 0.5);
     } catch (e) {
       console.error('Erro ao buscar frases:', e);
       return [];
     }
   }, []);
 
-  // Carregar frases iniciais
+  // Carregar frases
   useEffect(() => {
     async function init() {
-      const initial = await fetchFrases();
-      setFrases(initial);
-      setLoading(false);
+      const frasesCarregadas = await buscarFrases();
+      if (frasesCarregadas.length < 5) {
+        setErro('Não foi possível carregar as frases. Tente novamente.');
+        setEstado('erro');
+        return;
+      }
+      setFrases(frasesCarregadas);
+      setEstado('praticando');
     }
     init();
-  }, [fetchFrases]);
-
-  // Carregar mais frases
-  const handleLoadMore = async () => {
-    setLoadingMore(true);
-    const existingIds = frases.map((f) => f.id);
-    const more = await fetchFrases(existingIds);
-    setFrases((prev) => [...prev, ...more]);
-    setLoadingMore(false);
-  };
-
-  // Toggle conhece/não conhece
-  const toggleFrase = (fraseId: string) => {
-    setFrases((prev) =>
-      prev.map((f) =>
-        f.id === fraseId ? { ...f, conhece: !f.conhece } : f
-      )
-    );
-  };
+  }, [buscarFrases]);
 
   // Calcular nível baseado nas respostas
-  const calcularNivel = (): UserLevel => {
-    const basicas = frases.filter((f) => f.nivel === 'basico');
-    const intermediarias = frases.filter((f) => f.nivel === 'intermediario');
+  const calcularNivel = (resps: typeof respostas): UserLevel => {
+    const basicas = resps.filter(r => r.nivel === 'basico');
+    const intermediarias = resps.filter(r => r.nivel === 'intermediario');
 
     const taxaBasico = basicas.length > 0
-      ? basicas.filter((f) => f.conhece).length / basicas.length
+      ? basicas.filter(r => r.sabe).length / basicas.length
       : 0;
     const taxaInter = intermediarias.length > 0
-      ? intermediarias.filter((f) => f.conhece).length / intermediarias.length
+      ? intermediarias.filter(r => r.sabe).length / intermediarias.length
       : 0;
 
-    // Lógica: básico <80% → básico, básico ≥80% e inter <80% → intermediário, inter ≥80% → avançado
-    if (taxaBasico < 0.8) return 'basico';
-    if (taxaInter < 0.8) return 'intermediario';
+    // Lógica: básico <50% → básico, inter <50% → intermediário, senão → avançado
+    if (taxaBasico < 0.5) return 'basico';
+    if (taxaInter < 0.5) return 'intermediario';
     return 'avancado';
   };
 
-  // Finalizar avaliação
-  const handleFinish = () => {
-    if (submitting) return;
-    setSubmitting(true);
+  // Finalizar onboarding
+  const finalizarOnboarding = async (resps: typeof respostas) => {
+    setEstado('calculando');
 
-    const nivel = calcularNivel();
-    const totalConhece = frases.filter((f) => f.conhece).length;
-    const totalNaoConhece = frases.filter((f) => !f.conhece).length;
+    try {
+      const userId = session?.user?.id || user?.id;
+      if (!userId) {
+        setErro('Sessão não encontrada. Faça login novamente.');
+        setEstado('erro');
+        return;
+      }
 
-    router.push({
-      pathname: '/(onboarding)/result',
-      params: {
-        caderno_id: caderno_id || '',
-        nivel_detectado: nivel,
-        total_frases: String(frases.length),
-        total_conhece: String(totalConhece),
-        total_nao_conhece: String(totalNaoConhece),
-      },
+      const nivelDetectado = calcularNivel(resps);
+
+      // Buscar caderno padrão
+      const { data: cadernoPadrao } = await supabase
+        .from('cadernos')
+        .select('id')
+        .eq('tipo', 'padrao')
+        .limit(1)
+        .single();
+
+      const now = new Date();
+      const trialEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 dias
+
+      // Salvar no Supabase
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({
+          nivel: nivelDetectado,
+          caderno_ativo_id: cadernoPadrao?.id || null,
+          horarios_proibidos: [], // Vazio = recebe em todos os horários
+          onboarding_completo: true,
+          status: 'trial',
+          trial_inicio: now.toISOString(),
+          trial_fim: trialEnd.toISOString(),
+          updated_at: now.toISOString(),
+        })
+        .eq('id', userId);
+
+      if (updateError) {
+        console.error('Erro ao salvar:', updateError);
+        setErro('Não foi possível salvar. Tente novamente.');
+        setEstado('erro');
+        return;
+      }
+
+      // Refresh do perfil
+      await refreshProfile();
+
+      // Ir para Home
+      router.replace('/(tabs)/home');
+
+    } catch (e) {
+      console.error('Erro:', e);
+      setErro('Algo deu errado. Tente novamente.');
+      setEstado('erro');
+    }
+  };
+
+  // Responder frase
+  const responder = (sabe: boolean) => {
+    hapticFeedback(
+      sabe ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium
+    );
+
+    const fraseAtualObj = frases[fraseAtual];
+    const novaResposta = {
+      id: fraseAtualObj.id,
+      nivel: fraseAtualObj.nivel,
+      sabe,
+    };
+
+    const novasRespostas = [...respostas, novaResposta];
+    setRespostas(novasRespostas);
+
+    // Verificar se terminou
+    if (fraseAtual >= frases.length - 1) {
+      finalizarOnboarding(novasRespostas);
+      return;
+    }
+
+    // Animar para próxima
+    cardOpacity.value = withTiming(0, { duration: 150 });
+    cardTranslateX.value = withTiming(sabe ? SCREEN_WIDTH : -SCREEN_WIDTH, { duration: 200 }, () => {
+      runOnJS(avancarFrase)();
     });
   };
 
-  // Stats
-  const totalConhece = frases.filter((f) => f.conhece).length;
-  const totalNaoConhece = frases.filter((f) => !f.conhece).length;
-
-  // Nível label helper
-  const nivelLabel = (nivel: string | null) => {
-    switch (nivel) {
-      case 'basico': return 'Básico';
-      case 'intermediario': return 'Inter.';
-      case 'avancado': return 'Avançado';
-      default: return '';
-    }
+  const avancarFrase = () => {
+    setFraseAtual(prev => prev + 1);
+    cardTranslateX.value = 0;
+    cardOpacity.value = withSpring(1);
   };
 
-  const nivelColor = (nivel: string | null) => {
-    switch (nivel) {
-      case 'basico': return colors.green;
-      case 'intermediario': return colors.amber;
-      case 'avancado': return colors.rose;
-      default: return colors.text3;
+  // Retry
+  const tentarNovamente = async () => {
+    setEstado('carregando');
+    setErro(null);
+    setFrases([]);
+    setFraseAtual(0);
+    setRespostas([]);
+    
+    const frasesCarregadas = await buscarFrases();
+    if (frasesCarregadas.length < 5) {
+      setErro('Não foi possível carregar as frases.');
+      setEstado('erro');
+      return;
     }
+    setFrases(frasesCarregadas);
+    setEstado('praticando');
   };
+
+  // Animated styles
+  const cardAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: cardOpacity.value,
+    transform: [{ translateX: cardTranslateX.value }],
+  }));
+
+  const nome = user?.nome?.split(' ')[0] || 'você';
+
+  // ========== RENDERS ==========
+
+  // Carregando
+  if (estado === 'carregando') {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.bg }]}>
+        <View style={styles.centerContent}>
+          <ActivityIndicator size="large" color={colors.accent} />
+          <Text style={[styles.loadingText, { color: colors.text2 }]}>
+            Preparando suas frases...
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  // Erro
+  if (estado === 'erro') {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.bg }]}>
+        <View style={styles.centerContent}>
+          <Text style={styles.errorEmoji}>😕</Text>
+          <Text style={[styles.errorTitle, { color: colors.text1 }]}>
+            Ops!
+          </Text>
+          <Text style={[styles.errorMessage, { color: colors.text2 }]}>
+            {erro}
+          </Text>
+          <TouchableOpacity
+            style={[styles.retryButton, { backgroundColor: colors.accent }]}
+            onPress={tentarNovamente}
+          >
+            <Text style={styles.retryButtonText}>Tentar novamente</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // Calculando
+  if (estado === 'calculando') {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.bg }]}>
+        <View style={styles.centerContent}>
+          <ActivityIndicator size="large" color={colors.accent} />
+          <Text style={[styles.loadingText, { color: colors.text2 }]}>
+            Detectando seu nível...
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  // Praticando
+  const frase = frases[fraseAtual];
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bg }]}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.step, { color: colors.accent }]}>Passo 2 de 4</Text>
-        <Text style={[styles.title, { color: colors.text1 }]}>
-          Avaliação de nível
+        <Text style={[styles.greeting, { color: colors.text1 }]}>
+          Olá, {nome}! 👋
         </Text>
         <Text style={[styles.subtitle, { color: colors.text2 }]}>
-          Toque nas frases que você <Text style={{ fontWeight: '700', color: colors.rose }}>NÃO conhece</Text>.
-          {'\n'}Seja honesto — isso calibra seu nível.
+          Vamos descobrir seu nível.{'\n'}
+          Responda rápido, sem pensar muito!
         </Text>
       </View>
 
-      {/* Progress bar */}
-      <View style={[styles.progressBar, { backgroundColor: colors.bgRaised }]}>
-        <View style={[styles.progressFill, { width: '50%', backgroundColor: colors.accent }]} />
-      </View>
-
-      {/* Stats */}
-      <View style={styles.statsRow}>
-        <View style={[styles.statChip, { backgroundColor: colors.greenLight }]}>
-          <Text style={[styles.statText, { color: colors.green }]}>
-            ✓ {totalConhece} conheço
-          </Text>
-        </View>
-        <View style={[styles.statChip, { backgroundColor: colors.roseLight }]}>
-          <Text style={[styles.statText, { color: colors.rose }]}>
-            ✗ {totalNaoConhece} não conheço
-          </Text>
-        </View>
-      </View>
-
-      {/* Frases */}
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.accent} />
-          <Text style={[styles.loadingText, { color: colors.text2 }]}>
-            Preparando avaliação...
-          </Text>
-        </View>
-      ) : (
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {frases.map((frase, index) => (
-            <TouchableOpacity
-              key={frase.id}
-              activeOpacity={0.7}
-              onPress={() => toggleFrase(frase.id)}
-              style={[
-                styles.fraseCard,
-                {
-                  backgroundColor: frase.conhece ? colors.bgCard : colors.roseLight,
-                  borderColor: frase.conhece ? colors.border : colors.rose,
-                  borderWidth: 1,
-                },
-              ]}
-            >
-              <View style={styles.fraseRow}>
-                {/* Número */}
-                <View
-                  style={[
-                    styles.fraseNumber,
-                    {
-                      backgroundColor: frase.conhece
-                        ? colors.bgRaised
-                        : 'rgba(240, 113, 141, 0.2)',
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.fraseNumberText,
-                      { color: frase.conhece ? colors.text3 : colors.rose },
-                    ]}
-                  >
-                    {index + 1}
-                  </Text>
-                </View>
-
-                {/* Frase */}
-                <View style={styles.fraseInfo}>
-                  <Text
-                    style={[
-                      styles.fraseText,
-                      {
-                        color: frase.conhece ? colors.text1 : colors.rose,
-                        textDecorationLine: frase.conhece ? 'none' : 'none',
-                      },
-                    ]}
-                  >
-                    {frase.frase}
-                  </Text>
-                  <Text style={[styles.nivelTag, { color: nivelColor(frase.nivel) }]}>
-                    {nivelLabel(frase.nivel)}
-                  </Text>
-                </View>
-
-                {/* Toggle icon */}
-                <View
-                  style={[
-                    styles.toggleCircle,
-                    {
-                      backgroundColor: frase.conhece ? colors.greenLight : colors.roseLight,
-                      borderColor: frase.conhece ? colors.green : colors.rose,
-                    },
-                  ]}
-                >
-                  <Text style={{ fontSize: 14 }}>
-                    {frase.conhece ? '✓' : '✗'}
-                  </Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          ))}
-
-          {/* Botão carregar mais */}
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={handleLoadMore}
-            disabled={loadingMore}
-            style={[styles.loadMoreBtn, { borderColor: colors.border }]}
-          >
-            {loadingMore ? (
-              <ActivityIndicator size="small" color={colors.accent} />
-            ) : (
-              <Text style={[styles.loadMoreText, { color: colors.accent }]}>
-                + Carregar mais frases
-              </Text>
-            )}
-          </TouchableOpacity>
-
-          <Text style={[styles.hint, { color: colors.text3 }]}>
-            Mínimo 10 frases para uma avaliação precisa.{'\n'}
-            Quanto mais frases, melhor a calibração.
-          </Text>
-
-          <View style={{ height: 120 }} />
-        </ScrollView>
-      )}
-
-      {/* Bottom bar */}
-      <View style={[styles.bottomBar, { backgroundColor: colors.bg }]}>
-        <TouchableOpacity
-          activeOpacity={0.8}
-          disabled={frases.length < 10 || submitting}
-          onPress={handleFinish}
-          style={[
-            styles.continueBtn,
-            {
-              backgroundColor:
-                frases.length >= 10 ? colors.accent : colors.bgRaised,
-              opacity: frases.length >= 10 && !submitting ? 1 : 0.5,
-            },
-          ]}
-        >
-          <Text
+      {/* Progress */}
+      <View style={styles.progressContainer}>
+        <View style={[styles.progressBar, { backgroundColor: colors.bgRaised }]}>
+          <View
             style={[
-              styles.continueBtnText,
+              styles.progressFill,
               {
-                color: frases.length >= 10 ? '#FFFFFF' : colors.text3,
+                backgroundColor: colors.accent,
+                width: `${((fraseAtual + 1) / frases.length) * 100}%`,
               },
             ]}
-          >
-            {submitting ? 'Calculando...' : 'Finalizar avaliação'}
+          />
+        </View>
+        <Text style={[styles.progressText, { color: colors.text3 }]}>
+          {fraseAtual + 1} de {frases.length}
+        </Text>
+      </View>
+
+      {/* Card da frase */}
+      <View style={styles.cardContainer}>
+        <Animated.View style={[styles.phraseCard, { backgroundColor: colors.bgCard }, cardAnimatedStyle]}>
+          <Text style={[styles.phraseText, { color: colors.text1 }]}>
+            {frase?.frase}
           </Text>
+          <Text style={[styles.hint, { color: colors.text3 }]}>
+            Você sabe o que significa?
+          </Text>
+        </Animated.View>
+      </View>
+
+      {/* Botões */}
+      <View style={styles.buttonsContainer}>
+        <TouchableOpacity
+          style={[styles.actionButton, styles.naoSeiButton, { backgroundColor: colors.bgCard, borderColor: colors.rose }]}
+          onPress={() => responder(false)}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.buttonEmoji]}>🤔</Text>
+          <Text style={[styles.buttonText, { color: colors.rose }]}>Não sei</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionButton, styles.seiButton, { backgroundColor: colors.green }]}
+          onPress={() => responder(true)}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.buttonEmoji]}>✓</Text>
+          <Text style={[styles.buttonText, { color: '#FFFFFF' }]}>Sei</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Dica */}
+      <Text style={[styles.footerHint, { color: colors.text3 }]}>
+        Seja honesto — isso calibra seu nível inicial.
+      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: {
+    flex: 1,
+  },
+  centerContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+  },
+
+  // Header
   header: {
     paddingHorizontal: 24,
     paddingTop: 60,
-    paddingBottom: 4,
+    paddingBottom: 8,
   },
-  step: {
-    fontSize: 13,
-    fontWeight: '600',
-    marginBottom: 12,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-  },
-  title: {
-    fontSize: 26,
+  greeting: {
+    fontSize: 28,
     fontWeight: '800',
     letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: 14,
-    lineHeight: 21,
+    fontSize: 15,
+    lineHeight: 22,
     marginTop: 8,
   },
+
+  // Progress
+  progressContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    marginTop: 20,
+    gap: 12,
+  },
   progressBar: {
-    height: 4,
-    borderRadius: 2,
-    marginHorizontal: 24,
-    marginTop: 16,
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    borderRadius: 2,
+    borderRadius: 3,
   },
-  statsRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 24,
-    gap: 10,
-    marginTop: 14,
-    marginBottom: 4,
-  },
-  statChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  statText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 12,
+  progressText: {
     fontSize: 14,
-  },
-  scroll: { flex: 1 },
-  scrollContent: {
-    paddingHorizontal: 24,
-    paddingTop: 12,
+    fontWeight: '600',
+    minWidth: 50,
+    textAlign: 'right',
   },
 
-  // Frase card
-  fraseCard: {
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 8,
+  // Card
+  cardContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
   },
-  fraseRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  fraseNumber: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
+  phraseCard: {
+    borderRadius: 20,
+    padding: 32,
+    minHeight: 200,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 5,
   },
-  fraseNumberText: {
-    fontSize: 13,
+  phraseText: {
+    fontSize: 26,
     fontWeight: '700',
-  },
-  fraseInfo: {
-    flex: 1,
-  },
-  fraseText: {
-    fontSize: 15,
-    fontWeight: '500',
-    lineHeight: 20,
-  },
-  nivelTag: {
-    fontSize: 11,
-    fontWeight: '600',
-    marginTop: 3,
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-  },
-  toggleCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  // Load more
-  loadMoreBtn: {
-    height: 44,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  loadMoreText: {
-    fontSize: 14,
-    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 34,
   },
   hint: {
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: 'center',
-    marginTop: 14,
+    fontSize: 14,
+    marginTop: 16,
   },
 
-  // Bottom bar
-  bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+  // Botões
+  buttonsContainer: {
+    flexDirection: 'row',
     paddingHorizontal: 24,
-    paddingTop: 12,
-    paddingBottom: 36,
+    paddingBottom: 16,
+    gap: 12,
   },
-  continueBtn: {
-    height: 52,
-    borderRadius: 14,
-    justifyContent: 'center',
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 18,
+    borderRadius: 16,
+    gap: 8,
   },
-  continueBtnText: {
-    fontSize: 16,
+  naoSeiButton: {
+    borderWidth: 2,
+  },
+  seiButton: {},
+  buttonEmoji: {
+    fontSize: 20,
+  },
+  buttonText: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+
+  // Footer
+  footerHint: {
+    fontSize: 13,
+    textAlign: 'center',
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+  },
+
+  // Erro
+  errorEmoji: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  errorTitle: {
+    fontSize: 24,
     fontWeight: '700',
+    marginBottom: 8,
+  },
+  errorMessage: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  retryButton: {
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 12,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

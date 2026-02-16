@@ -1,6 +1,7 @@
 // app/(onboarding)/_layout.tsx
+// Layout simplificado — apenas mini-prática
 import { Stack } from 'expo-router';
-import { useTheme } from '@/context/ThemeContext';
+import { useTheme } from '../../context/ThemeContext';
 
 export default function OnboardingLayout() {
   const { colors } = useTheme();
@@ -10,7 +11,7 @@ export default function OnboardingLayout() {
       screenOptions={{
         headerShown: false,
         contentStyle: { backgroundColor: colors.bg },
-        animation: 'slide_from_right',
+        animation: 'fade',
       }}
     />
   );

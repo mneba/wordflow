@@ -1,8 +1,9 @@
 // app/(tabs)/index.tsx
-// Tela Home - Principal do WordFlow
-// Fase 4 - Design v4
+// Tela Home — implementação completa Fase 4A
+// Princípios: Lei do Menor Esforço, Aversão à Perda, Zeigarnik,
+// Variabilidade de Recompensa, Identidade, Progressão Visual
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,376 +12,187 @@ import {
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
-  Dimensions,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
-import { supabase } from '../../services/supabase';
-import type { Caderno, Sessao } from '../../types';
+import { useHomeData } from '../../hooks/useHomeData';
+import { getGreeting } from '../../utils/mensagensContextuais';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = 140;
-const CARD_HEIGHT = 180;
+import StreakPopup from '../../components/StreakPopup';
+import SessionCard from '../../components/SessionCard';
+import FlipCard from '../../components/FlipCard';
+
+const haptic = (style = Haptics.ImpactFeedbackStyle.Medium) => {
+  if (Platform.OS !== 'web') Haptics.impactAsync(style);
+};
 
 export default function HomeScreen() {
+  const { colors, toggleTheme, mode, isDark } = useTheme();
+  const { user, signOut, refreshProfile } = useAuth();
   const router = useRouter();
-  const { colors, isDark } = useTheme();
-  const { user, refreshProfile } = useAuth();
 
-  // Estados
+  const {
+    caderno,
+    sessaoAtiva,
+    sessaoConcluidaHoje,
+    frasesStats,
+    revisoesHoje,
+    revisoesAmanha,
+    historicoMes,
+    contexto,
+    loading,
+    refresh,
+  } = useHomeData();
+
   const [refreshing, setRefreshing] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [sessaoAtiva, setSessaoAtiva] = useState<Sessao | null>(null);
-  const [cadernoAtivo, setCadernoAtivo] = useState<Caderno | null>(null);
-  const [cadernos, setCadernos] = useState<Caderno[]>([]);
-  const [estatisticas, setEstatisticas] = useState({
-    frasesHoje: 0,
-    taxaAcerto: 0,
-    diasConsecutivos: 0,
-  });
 
-  // Greeting baseado na hora
-  const getGreeting = () => {
-    const hora = new Date().getHours();
-    if (hora < 12) return 'Bom dia';
-    if (hora < 18) return 'Boa tarde';
-    return 'Boa noite';
-  };
-
-  const primeiroNome = user?.nome?.split(' ')[0] || 'você';
-
-  // Carregar dados
-  const carregarDados = useCallback(async () => {
-    if (!user?.id) return;
-
-    try {
-      // 1. Verificar sessão ativa
-      const { data: sessao } = await supabase
-        .from('sessoes')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('status', 'ativa')
-        .order('iniciada_em', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      setSessaoAtiva(sessao);
-
-      // 2. Buscar caderno ativo
-      if (user.caderno_ativo_id) {
-        const { data: caderno } = await supabase
-          .from('cadernos')
-          .select('*')
-          .eq('id', user.caderno_ativo_id)
-          .single();
-
-        setCadernoAtivo(caderno);
-      }
-
-      // 3. Buscar todos os cadernos
-      const { data: todosCadernos } = await supabase
-        .from('cadernos')
-        .select('*')
-        .eq('status', 'ativo')
-        .order('tipo', { ascending: true });
-
-      setCadernos(todosCadernos || []);
-
-      // 4. Estatísticas do usuário
-      setEstatisticas({
-        frasesHoje: user.frases_enviadas_hoje || 0,
-        taxaAcerto: user.total_frases_vistas > 0
-          ? Math.round((user.total_frases_corretas / user.total_frases_vistas) * 100)
-          : 0,
-        diasConsecutivos: user.dias_consecutivos || 0,
-      });
-
-    } catch (error) {
-      console.error('Erro ao carregar dados:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [user]);
-
-  useEffect(() => {
-    carregarDados();
-  }, [carregarDados]);
-
-  // Pull to refresh
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refreshProfile();
-    await carregarDados();
+    await Promise.all([refreshProfile(), refresh()]);
     setRefreshing(false);
-  };
+  }, [refreshProfile, refresh]);
 
-  // Navegar para prática
-  const iniciarPratica = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  // Saudação
+  const greeting = getGreeting();
+  const nome = user?.nome?.split(' ')[0] || 'Estudante';
+
+  // Taxa de acerto
+  const taxaAcerto = useMemo(() => {
+    if (!user?.total_frases_vistas) return 0;
+    return Math.round(((user.total_frases_corretas || 0) / user.total_frases_vistas) * 100);
+  }, [user?.total_frases_vistas, user?.total_frases_corretas]);
+
+  // Dias ativos no mês
+  const diasAtivos = historicoMes.length;
+
+  // Média de acerto no mês
+  const mediaAcerto = useMemo(() => {
+    if (historicoMes.length === 0) return 0;
+    const soma = historicoMes.reduce((acc, d) => acc + d.taxa, 0);
+    return Math.round(soma / historicoMes.length);
+  }, [historicoMes]);
+
+  // Navegação para prática
+  const handleIniciarPratica = useCallback(() => {
+    haptic();
     router.push('/(tabs)/praticar');
-  };
+  }, [router]);
 
-  // Cor do caderno baseado no índice
-  const getCadernoColor = (index: number) => {
-    const cores = [
-      { bg: colors.accentLight, text: colors.accent },
-      { bg: colors.skyLight, text: colors.sky },
-      { bg: colors.greenLight, text: colors.green },
-      { bg: colors.amberLight, text: colors.amber },
-      { bg: colors.roseLight, text: colors.rose },
-    ];
-    return cores[index % cores.length];
-  };
+  const handleContinuarPratica = useCallback(() => {
+    haptic();
+    router.push('/(tabs)/praticar');
+  }, [router]);
 
-  // Loading inicial
-  if (loading) {
+  // Milestone banner
+  const milestoneMsg = useMemo(() => {
+    const dias = user?.dias_consecutivos || 0;
+    if (dias === 7) return '🎉 7 dias seguidos! Você é consistente!';
+    if (dias === 14) return '🏆 14 dias! Hábito se formando!';
+    if (dias === 30) return '🌟 30 dias! Você é imparável!';
+    if (dias === 60) return '💎 60 dias! Nível lendário!';
+    if (dias === 100) return '🔥 100 DIAS! Você é uma máquina!';
+    return null;
+  }, [user?.dias_consecutivos]);
+
+  // Loading state
+  if (loading && !user) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]} edges={['top']}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.accent} />
-        </View>
-      </SafeAreaView>
+      <View style={[styles.loadingContainer, { backgroundColor: colors.bg }]}>
+        <ActivityIndicator size="large" color={colors.accent} />
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]} edges={['top']}>
+    <View style={[styles.root, { backgroundColor: colors.bg }]}>
+      {/* Popup de streak */}
+      <StreakPopup
+        diasConsecutivos={user?.dias_consecutivos || 0}
+        streakEmRisco={contexto.streakEmRisco}
+        horasRestantes={contexto.horasRestantes}
+        sessaoConcluida={contexto.sessaoConcluida}
+      />
+
       <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        style={styles.container}
+        contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
             tintColor={colors.accent}
-            colors={[colors.accent]}
           />
         }
       >
-        {/* ========== GREETING ========== */}
-        <View style={styles.greetingSection}>
-          <Text style={[styles.greeting, { color: colors.text2 }]}>
-            {getGreeting()},
-          </Text>
-          <Text style={[styles.userName, { color: colors.text1 }]}>
-            {primeiroNome} 👋
-          </Text>
-        </View>
-
-        {/* ========== SESSION CARD ========== */}
-        <TouchableOpacity
-          style={[styles.sessionCard, { backgroundColor: colors.bgCard }]}
-          onPress={iniciarPratica}
-          activeOpacity={0.8}
-        >
-          <View style={styles.sessionCardContent}>
-            <View style={styles.sessionCardLeft}>
-              {sessaoAtiva ? (
-                <>
-                  <Text style={[styles.sessionTitle, { color: colors.text1 }]}>
-                    Continuar sessão
-                  </Text>
-                  <Text style={[styles.sessionSubtitle, { color: colors.text2 }]}>
-                    {sessaoAtiva.frases_respondidas}/{sessaoAtiva.total_frases} frases
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <Text style={[styles.sessionTitle, { color: colors.text1 }]}>
-                    Iniciar prática
-                  </Text>
-                  <Text style={[styles.sessionSubtitle, { color: colors.text2 }]}>
-                    {user?.frases_por_dia || 5} frases esperando você
-                  </Text>
-                </>
-              )}
-            </View>
-
-            <View style={[styles.playButton, { backgroundColor: colors.accent }]}>
-              <Text style={styles.playIcon}>▶</Text>
-            </View>
-          </View>
-
-          {/* Stats row */}
-          <View style={[styles.statsRow, { borderTopColor: colors.border }]}>
-            <View style={styles.statItem}>
-              <Text style={[styles.statValue, { color: colors.green }]}>
-                {estatisticas.diasConsecutivos}
-              </Text>
-              <Text style={[styles.statLabel, { color: colors.text3 }]}>
-                dias seguidos
-              </Text>
-            </View>
-            <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-            <View style={styles.statItem}>
-              <Text style={[styles.statValue, { color: colors.amber }]}>
-                {estatisticas.taxaAcerto}%
-              </Text>
-              <Text style={[styles.statLabel, { color: colors.text3 }]}>
-                taxa de acerto
-              </Text>
-            </View>
-            <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-            <View style={styles.statItem}>
-              <Text style={[styles.statValue, { color: colors.sky }]}>
-                {user?.total_frases_vistas || 0}
-              </Text>
-              <Text style={[styles.statLabel, { color: colors.text3 }]}>
-                frases vistas
-              </Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        {/* ========== CADERNO ATIVO ========== */}
-        {cadernoAtivo && (
-          <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: colors.text1 }]}>
-              Seu caderno
+        {/* ─── Header ─── */}
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={[styles.greeting, { color: colors.text2 }]}>
+              {greeting.text} {greeting.icon}
             </Text>
-
-            <View style={[styles.activeCadernoCard, { backgroundColor: colors.bgCard }]}>
-              <View style={styles.activeCadernoHeader}>
-                <Text style={styles.activeCadernoIcon}>
-                  {cadernoAtivo.icone || '📚'}
-                </Text>
-                <View style={styles.activeCadernoInfo}>
-                  <Text style={[styles.activeCadernoNome, { color: colors.text1 }]}>
-                    {cadernoAtivo.nome}
-                  </Text>
-                  <Text style={[styles.activeCadernoFrases, { color: colors.text2 }]}>
-                    {cadernoAtivo.total_frases} frases
-                  </Text>
-                </View>
-              </View>
-
-              {cadernoAtivo.descricao && (
-                <Text
-                  style={[styles.activeCadernoDesc, { color: colors.text3 }]}
-                  numberOfLines={2}
-                >
-                  {cadernoAtivo.descricao}
-                </Text>
-              )}
-            </View>
+            <Text style={[styles.name, { color: colors.text1 }]}>{nome}</Text>
           </View>
-        )}
-
-        {/* ========== CADERNOS OFICIAIS ========== */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: colors.text1 }]}>
-              Cadernos oficiais
-            </Text>
-            <TouchableOpacity onPress={() => router.push('/(tabs)/cadernos')}>
-              <Text style={[styles.sectionLink, { color: colors.accent }]}>
-                Ver todos
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.cadernosRow}
-          >
-            {cadernos
-              .filter(c => c.tipo === 'padrao' || c.tipo === 'tematico')
-              .slice(0, 6)
-              .map((caderno, index) => {
-                const corTint = getCadernoColor(index);
-                const isAtivo = caderno.id === user?.caderno_ativo_id;
-
-                return (
-                  <TouchableOpacity
-                    key={caderno.id}
-                    style={[
-                      styles.cadernoCard,
-                      { backgroundColor: colors.bgCard },
-                      isAtivo && { borderColor: colors.accent, borderWidth: 2 },
-                    ]}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      // TODO: Navegar para detalhes do caderno
-                    }}
-                  >
-                    <View style={[styles.cadernoIconBg, { backgroundColor: corTint.bg }]}>
-                      <Text style={styles.cadernoIcon}>
-                        {caderno.icone || '📖'}
-                      </Text>
-                    </View>
-
-                    <Text
-                      style={[styles.cadernoNome, { color: colors.text1 }]}
-                      numberOfLines={2}
-                    >
-                      {caderno.nome}
-                    </Text>
-
-                    <Text style={[styles.cadernoMeta, { color: colors.text3 }]}>
-                      {caderno.total_frases} frases
-                    </Text>
-
-                    {/* Tags */}
-                    <View style={styles.cadernoTags}>
-                      {caderno.tipo === 'padrao' && (
-                        <View style={[styles.tag, { backgroundColor: colors.greenLight }]}>
-                          <Text style={[styles.tagText, { color: colors.green }]}>
-                            Grátis
-                          </Text>
-                        </View>
-                      )}
-                      {isAtivo && (
-                        <View style={[styles.tag, { backgroundColor: colors.accentLight }]}>
-                          <Text style={[styles.tagText, { color: colors.accent }]}>
-                            Ativo
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-          </ScrollView>
-        </View>
-
-        {/* ========== CRIAR COM IA (Placeholder) ========== */}
-        <View style={styles.section}>
-          <TouchableOpacity
-            style={[styles.aiCard, { backgroundColor: colors.bgCard, borderColor: colors.border }]}
-            activeOpacity={0.7}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              // TODO: Implementar criação com IA
-            }}
-          >
-            <Text style={styles.aiIcon}>✦</Text>
-            <View style={styles.aiContent}>
-              <Text style={[styles.aiTitle, { color: colors.text1 }]}>
-                Criar caderno com IA
-              </Text>
-              <Text style={[styles.aiSubtitle, { color: colors.text3 }]}>
-                Em breve
-              </Text>
-            </View>
-            <Text style={[styles.aiArrow, { color: colors.text3 }]}>→</Text>
+          <TouchableOpacity onPress={toggleTheme} style={styles.themeBtn}>
+            <Text style={{ fontSize: 24 }}>{mode === 'dark' ? '🌙' : '☀️'}</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Espaçamento final */}
-        <View style={{ height: 32 }} />
+        {/* ─── Milestone banner ─── */}
+        {milestoneMsg && (
+          <View style={[styles.milestoneBanner, { backgroundColor: colors.amberLight }]}>
+            <Text style={[styles.milestoneText, { color: colors.amber }]}>
+              {milestoneMsg}
+            </Text>
+          </View>
+        )}
+
+        {/* ─── Session Card ─── */}
+        <SessionCard
+          contexto={contexto}
+          sessaoAtiva={sessaoAtiva}
+          sessaoConcluidaHoje={sessaoConcluidaHoje}
+          revisoesAmanha={revisoesAmanha}
+          frasesPerDia={user?.frases_por_dia || 5}
+          onIniciar={handleIniciarPratica}
+          onContinuar={handleContinuarPratica}
+        />
+
+        {/* ─── FlipCard: Analytics ↔ Calendário ─── */}
+        <FlipCard
+          cadernoNome={caderno?.nome || 'Inglês Geral'}
+          cadernoIcone={caderno?.icone || '📚'}
+          stats={frasesStats}
+          taxaAcerto={taxaAcerto}
+          historicoMes={historicoMes}
+          diasConsecutivos={user?.dias_consecutivos || 0}
+          diasAtivos={diasAtivos}
+          mediaAcerto={mediaAcerto}
+        />
+
+        {/* Spacer para o FlipCard (usa position absolute internamente) */}
+        <View style={{ height: 400 }} />
+
+        {/* ─── Logout ─── */}
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={signOut}
+          style={[styles.logoutBtn, { borderColor: colors.border }]}
+        >
+          <Text style={[styles.logoutText, { color: colors.text3 }]}>Sair da conta</Text>
+        </TouchableOpacity>
+
+        <View style={{ height: 40 }} />
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
   },
   loadingContainer: {
@@ -388,216 +200,63 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  scrollView: {
+  container: {
     flex: 1,
   },
-  scrollContent: {
+  content: {
     paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingTop: 60,
+    paddingBottom: 20,
   },
 
-  // Greeting
-  greetingSection: {
-    marginBottom: 20,
+  // Header
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 24,
   },
   greeting: {
-    fontSize: 16,
-    fontWeight: '500',
+    fontSize: 14,
   },
-  userName: {
+  name: {
     fontSize: 28,
-    fontWeight: '700',
-    marginTop: 2,
+    fontWeight: '800',
+    marginTop: 4,
+    letterSpacing: -0.5,
   },
-
-  // Session Card
-  sessionCard: {
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  sessionCardContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  sessionCardLeft: {
-    flex: 1,
-  },
-  sessionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  sessionSubtitle: {
-    fontSize: 14,
-  },
-  playButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  playIcon: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    marginLeft: 3,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    marginTop: 20,
-    paddingTop: 16,
-    borderTopWidth: 1,
-  },
-  statItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statDivider: {
-    width: 1,
-    height: '100%',
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  statLabel: {
-    fontSize: 11,
-    marginTop: 2,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-
-  // Sections
-  section: {
-    marginBottom: 24,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  sectionLink: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-
-  // Active Caderno
-  activeCadernoCard: {
-    borderRadius: 16,
-    padding: 16,
-  },
-  activeCadernoHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  activeCadernoIcon: {
-    fontSize: 32,
-    marginRight: 12,
-  },
-  activeCadernoInfo: {
-    flex: 1,
-  },
-  activeCadernoNome: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  activeCadernoFrases: {
-    fontSize: 13,
-    marginTop: 2,
-  },
-  activeCadernoDesc: {
-    fontSize: 13,
-    marginTop: 12,
-    lineHeight: 18,
-  },
-
-  // Cadernos Row
-  cadernosRow: {
-    paddingRight: 20,
-    gap: 12,
-  },
-  cadernoCard: {
-    width: CARD_WIDTH,
-    height: CARD_HEIGHT,
-    borderRadius: 16,
-    padding: 14,
-    marginRight: 12,
-  },
-  cadernoIconBg: {
+  themeBtn: {
     width: 44,
     height: 44,
-    borderRadius: 12,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
-  },
-  cadernoIcon: {
-    fontSize: 22,
-  },
-  cadernoNome: {
-    fontSize: 14,
-    fontWeight: '600',
-    lineHeight: 18,
-    marginBottom: 4,
-  },
-  cadernoMeta: {
-    fontSize: 12,
-  },
-  cadernoTags: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 'auto',
-    gap: 6,
-  },
-  tag: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  tagText: {
-    fontSize: 10,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
 
-  // AI Card
-  aiCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 16,
-    padding: 16,
+  // Milestone
+  milestoneBanner: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    marginBottom: 16,
+  },
+  milestoneText: {
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+
+  // Logout
+  logoutBtn: {
     borderWidth: 1,
-    borderStyle: 'dashed',
+    borderRadius: 14,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 8,
   },
-  aiIcon: {
-    fontSize: 24,
-    marginRight: 12,
-  },
-  aiContent: {
-    flex: 1,
-  },
-  aiTitle: {
+  logoutText: {
     fontSize: 15,
     fontWeight: '600',
-  },
-  aiSubtitle: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  aiArrow: {
-    fontSize: 18,
   },
 });

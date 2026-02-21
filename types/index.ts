@@ -18,6 +18,7 @@ export interface User {
   nivel: UserLevel;
   objetivos: string[] | null;
   horario_preferido: UserPeriod;
+  horarios_proibidos: string[] | null;  // NOVO — períodos bloqueados
   slot_envio: number | null;
   audio_habilitado: boolean;
   status: UserStatus;
@@ -81,7 +82,7 @@ export interface Caderno {
 // SESSÃO
 // ============================================
 export type SessaoStatus = 'ativa' | 'concluida' | 'abandonada' | 'expirada';
-export type SessaoTipo = 'manha' | 'tarde' | 'noite' | 'sob_demanda' | 'boas_vindas';
+export type SessaoTipo = 'manha' | 'tarde' | 'noite' | 'sob_demanda' | 'boas_vindas' | 'pratica';
 
 export interface Sessao {
   id: string;
@@ -141,30 +142,37 @@ export interface MetricaDiaria {
 }
 
 // ============================================
-// RESPOSTA DA SESSÃO (API)
+// RESPOSTA DA SESSÃO (API — Edge Functions)
 // ============================================
 export interface IniciarSessaoResponse {
+  success: boolean;
   sessao_id: string;
+  tipo: string;
   total_frases: number;
   frases: SessionFrase[];
+  mensagem_motivacional?: string;
 }
 
 export interface SessionFrase {
-  controle_id: string;
+  frase_id: string;
   frase: string;
+  traducao?: string;
+  explicacao?: string | null;
   nivel: string | null;
-  tipo: 'nova' | 'revisao';
+  estado: FraseEstado;
   ordem: number;
   audio_url: string | null;
 }
 
 export interface ResponderFraseResponse {
+  success: boolean;
   feedback: {
-    acertou: boolean;
-    traducao: string;
-    explicacao: string | null;
-    audio_url: string | null;
+    mensagem: string;
+    tipo: 'acerto' | 'erro' | 'confirmacao';
+    emoji: string;
   };
+  proxima_revisao: string;
+  estado_novo: FraseEstado;
   sessao: {
     frases_respondidas: number;
     total_frases: number;
@@ -172,7 +180,10 @@ export interface ResponderFraseResponse {
     erros: number;
     concluida: boolean;
   };
-  proxima_frase: SessionFrase | null;
+  frase_info: {
+    traducao: string;
+    explicacao: string | null;
+  };
 }
 
 // ============================================

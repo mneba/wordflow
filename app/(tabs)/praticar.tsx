@@ -12,6 +12,7 @@ import {
   Dimensions,
   SafeAreaView,
   StatusBar,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -135,9 +136,11 @@ export default function PraticarScreen() {
     if (!sessaoId || !frases[fraseAtualIndex]) return;
 
     // Haptic feedback
-    Haptics.impactAsync(
-      sabe ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium
-    );
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(
+        sabe ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium
+      );
+    }
 
     // Animação do botão
     buttonScale.value = withSequence(
@@ -196,7 +199,9 @@ export default function PraticarScreen() {
   // Avançar para próxima frase
   const proximaFrase = () => {
     // Haptic
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
 
     // Verificar se sessão concluída
     if (sessaoInfo?.concluida || fraseAtualIndex >= frases.length - 1) {
@@ -229,13 +234,17 @@ export default function PraticarScreen() {
 
   // Voltar para home
   const voltarParaHome = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
     router.replace('/(tabs)');
   };
 
   // Reiniciar sessão
   const reiniciarSessao = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
     iniciarSessao();
   };
 

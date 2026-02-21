@@ -1,9 +1,9 @@
 // app/(tabs)/home.tsx
-// Tela principal — pós-onboarding
-// Mostra saudação, caderno ativo, sessão do dia, progresso
-// Será expandida na Fase 4 com a sessão de prática real
+// Tela Home — implementação completa Fase 4A
+// Princípios: Lei do Menor Esforço, Aversão à Perda, Zeigarnik,
+// Variabilidade de Recompensa, Identidade, Progressão Visual
 
-import { useEffect, useState } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,280 +11,212 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/services/supabase';
-import type { Caderno } from '@/types';
+import { useHomeData } from '@/hooks/useHomeData';
+import { getGreeting } from '@/utils/mensagensContextuais';
+
+import StreakPopup from '@/components/StreakPopup';
+import SessionCard from '@/components/SessionCard';
+import FlipCard from '@/components/FlipCard';
 
 export default function HomeScreen() {
-  const { colors, toggleTheme, mode } = useTheme();
+  const { colors, toggleTheme, mode, isDark } = useTheme();
   const { user, signOut, refreshProfile } = useAuth();
+  const router = useRouter();
 
-  const [caderno, setCaderno] = useState<Caderno | null>(null);
+  const {
+    caderno,
+    sessaoAtiva,
+    sessaoConcluidaHoje,
+    frasesStats,
+    revisoesHoje,
+    revisoesAmanha,
+    historicoMes,
+    contexto,
+    loading,
+    refresh,
+  } = useHomeData();
+
   const [refreshing, setRefreshing] = useState(false);
 
-  // Buscar caderno ativo
-  useEffect(() => {
-    if (!user?.caderno_ativo_id) return;
-
-    async function fetchCaderno() {
-      const { data } = await supabase
-        .from('cadernos')
-        .select('*')
-        .eq('id', user!.caderno_ativo_id!)
-        .single();
-
-      if (data) setCaderno(data);
-    }
-
-    fetchCaderno();
-  }, [user?.caderno_ativo_id]);
-
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refreshProfile();
+    await Promise.all([refreshProfile(), refresh()]);
     setRefreshing(false);
-  };
+  }, [refreshProfile, refresh]);
 
-  // Saudação baseada na hora
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return { text: 'Bom dia', icon: '☀️' };
-    if (hour < 18) return { text: 'Boa tarde', icon: '🌤️' };
-    return { text: 'Boa noite', icon: '🌙' };
-  };
-
+  // Saudação
   const greeting = getGreeting();
   const nome = user?.nome?.split(' ')[0] || 'Estudante';
 
-  // Nível display
-  const nivelDisplay = () => {
-    switch (user?.nivel) {
-      case 'basico': return { label: 'Básico', color: colors.green, emoji: '🌱' };
-      case 'intermediario': return { label: 'Intermediário', color: colors.amber, emoji: '⚡' };
-      case 'avancado': return { label: 'Avançado', color: colors.rose, emoji: '🚀' };
-      default: return { label: 'Não definido', color: colors.text3, emoji: '📚' };
-    }
-  };
+  // Taxa de acerto
+  const taxaAcerto = useMemo(() => {
+    if (!user?.total_frases_vistas) return 0;
+    return Math.round(((user.total_frases_corretas || 0) / user.total_frases_vistas) * 100);
+  }, [user?.total_frases_vistas, user?.total_frases_corretas]);
 
-  const nivel = nivelDisplay();
+  // Dias ativos no mês
+  const diasAtivos = historicoMes.length;
 
-  // Período display
-  const periodoDisplay = () => {
-    switch (user?.horario_preferido) {
-      case 'manha': return 'Manhã';
-      case 'almoco': return 'Almoço';
-      case 'tarde': return 'Tarde';
-      case 'noite': return 'Noite';
-      default: return '—';
-    }
-  };
+  // Média de acerto no mês
+  const mediaAcerto = useMemo(() => {
+    if (historicoMes.length === 0) return 0;
+    const soma = historicoMes.reduce((acc, d) => acc + d.taxa, 0);
+    return Math.round(soma / historicoMes.length);
+  }, [historicoMes]);
 
-  // Trial info
-  const trialDaysLeft = () => {
-    if (!user?.trial_fim) return 0;
-    const diff = new Date(user.trial_fim).getTime() - Date.now();
-    return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
-  };
+  // Navegação para prática
+  const handleIniciarPratica = useCallback(() => {
+    router.push('/(tabs)/praticar');
+  }, [router]);
+
+  const handleContinuarPratica = useCallback(() => {
+    router.push('/(tabs)/praticar');
+  }, [router]);
+
+  // ─── Milestone banner ───
+  const milestoneMsg = useMemo(() => {
+    const dias = user?.dias_consecutivos || 0;
+    if (dias === 7) return '🎉 7 dias seguidos! Você é consistente!';
+    if (dias === 14) return '🏆 14 dias! Hábito se formando!';
+    if (dias === 30) return '🌟 30 dias! Você é imparável!';
+    if (dias === 60) return '💎 60 dias! Nível lendário!';
+    if (dias === 100) return '🔥 100 DIAS! Você é uma máquina!';
+    return null;
+  }, [user?.dias_consecutivos]);
+
+  // Loading state
+  if (loading && !user) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: colors.bg }]}>
+        <ActivityIndicator size="large" color={colors.accent} />
+      </View>
+    );
+  }
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: colors.bg }]}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
-      }
-    >
-      {/* Header */}
-      <View style={styles.headerRow}>
-        <View>
-          <Text style={[styles.greeting, { color: colors.text2 }]}>
-            {greeting.text} {greeting.icon}
-          </Text>
-          <Text style={[styles.name, { color: colors.text1 }]}>{nome}</Text>
+    <View style={[styles.root, { backgroundColor: colors.bg }]}>
+      {/* Popup de streak */}
+      <StreakPopup
+        diasConsecutivos={user?.dias_consecutivos || 0}
+        streakEmRisco={contexto.streakEmRisco}
+        horasRestantes={contexto.horasRestantes}
+        sessaoConcluida={contexto.sessaoConcluida}
+      />
+
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.accent}
+          />
+        }
+      >
+        {/* ─── Header ─── */}
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={[styles.greeting, { color: colors.text2 }]}>
+              {greeting.text} {greeting.icon}
+            </Text>
+            <Text style={[styles.name, { color: colors.text1 }]}>{nome}</Text>
+          </View>
+          <TouchableOpacity onPress={toggleTheme} style={styles.themeBtn}>
+            <Text style={{ fontSize: 24 }}>{mode === 'dark' ? '🌙' : '☀️'}</Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity onPress={toggleTheme} style={styles.themeBtn}>
-          <Text style={{ fontSize: 24 }}>{mode === 'dark' ? '🌙' : '☀️'}</Text>
+
+        {/* ─── Milestone banner ─── */}
+        {milestoneMsg && (
+          <View style={[styles.milestoneBanner, { backgroundColor: colors.amberLight }]}>
+            <Text style={[styles.milestoneText, { color: colors.amber }]}>
+              {milestoneMsg}
+            </Text>
+          </View>
+        )}
+
+        {/* ─── Session Card ─── */}
+        <SessionCard
+          contexto={contexto}
+          sessaoAtiva={sessaoAtiva}
+          sessaoConcluidaHoje={sessaoConcluidaHoje}
+          revisoesAmanha={revisoesAmanha}
+          frasesPerDia={user?.frases_por_dia || 5}
+          onIniciar={handleIniciarPratica}
+          onContinuar={handleContinuarPratica}
+        />
+
+        {/* ─── FlipCard: Analytics ↔ Calendário ─── */}
+        <FlipCard
+          cadernoNome={caderno?.nome || 'Inglês Geral'}
+          cadernoIcone={caderno?.icone || '📚'}
+          stats={frasesStats}
+          taxaAcerto={taxaAcerto}
+          historicoMes={historicoMes}
+          diasConsecutivos={user?.dias_consecutivos || 0}
+          diasAtivos={diasAtivos}
+          mediaAcerto={mediaAcerto}
+        />
+
+        {/* Spacer para o FlipCard que usa position absolute */}
+        <View style={{ height: 400 }} />
+
+        {/* ─── Logout ─── */}
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={signOut}
+          style={[styles.logoutBtn, { borderColor: colors.border }]}
+        >
+          <Text style={[styles.logoutText, { color: colors.text3 }]}>Sair da conta</Text>
         </TouchableOpacity>
-      </View>
 
-      {/* Trial banner */}
-      {user?.status === 'trial' && (
-        <View style={[styles.trialBanner, { backgroundColor: colors.accentLight }]}>
-          <Text style={[styles.trialText, { color: colors.accent }]}>
-            ✨ Trial · {trialDaysLeft()} dias restantes
-          </Text>
-        </View>
-      )}
-
-      {/* Sessão do dia — placeholder para Fase 4 */}
-      <TouchableOpacity
-        activeOpacity={0.8}
-        style={[styles.sessionCard, { backgroundColor: colors.accent }]}
-      >
-        <View style={styles.sessionTop}>
-          <Text style={styles.sessionEmoji}>🎯</Text>
-          <View style={styles.sessionInfo}>
-            <Text style={styles.sessionTitle}>Sessão do dia</Text>
-            <Text style={styles.sessionSubtitle}>
-              {user?.frases_por_dia || 5} frases · {periodoDisplay()}
-            </Text>
-          </View>
-        </View>
-        <View style={styles.sessionBtn}>
-          <Text style={styles.sessionBtnText}>Iniciar prática →</Text>
-        </View>
-        <Text style={styles.sessionNote}>
-          🚀 Implementação na Fase 4
-        </Text>
-      </TouchableOpacity>
-
-      {/* Caderno ativo */}
-      {caderno && (
-        <View style={[styles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.cardIcon}>{caderno.icone || '📚'}</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.cardTitle, { color: colors.text1 }]}>
-                Caderno ativo
-              </Text>
-              <Text style={[styles.cardValue, { color: colors.accent }]}>
-                {caderno.nome}
-              </Text>
-            </View>
-          </View>
-          <Text style={[styles.cardDetail, { color: colors.text3 }]}>
-            {caderno.total_frases} frases · {caderno.tipo === 'padrao' ? 'Geral' : 'Temático'}
-          </Text>
-        </View>
-      )}
-
-      {/* Progresso rápido */}
-      <View style={[styles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
-        <Text style={[styles.sectionTitle, { color: colors.text2 }]}>Seu perfil</Text>
-
-        <View style={styles.profileGrid}>
-          <View style={styles.profileItem}>
-            <Text style={styles.profileEmoji}>{nivel.emoji}</Text>
-            <Text style={[styles.profileLabel, { color: colors.text3 }]}>Nível</Text>
-            <Text style={[styles.profileValue, { color: nivel.color }]}>{nivel.label}</Text>
-          </View>
-
-          <View style={[styles.profileDivider, { backgroundColor: colors.border }]} />
-
-          <View style={styles.profileItem}>
-            <Text style={styles.profileEmoji}>🔥</Text>
-            <Text style={[styles.profileLabel, { color: colors.text3 }]}>Sequência</Text>
-            <Text style={[styles.profileValue, { color: colors.amber }]}>
-              {user?.dias_consecutivos || 0} dias
-            </Text>
-          </View>
-
-          <View style={[styles.profileDivider, { backgroundColor: colors.border }]} />
-
-          <View style={styles.profileItem}>
-            <Text style={styles.profileEmoji}>📊</Text>
-            <Text style={[styles.profileLabel, { color: colors.text3 }]}>Praticadas</Text>
-            <Text style={[styles.profileValue, { color: colors.sky }]}>
-              {user?.total_frases_vistas || 0}
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Status cards */}
-      <View style={styles.statusRow}>
-        <View style={[styles.miniCard, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
-          <Text style={[styles.miniLabel, { color: colors.text3 }]}>Status</Text>
-          <Text style={[styles.miniValue, { color: colors.green }]}>
-            {user?.status === 'trial' ? '🟢 Trial' : user?.status || '—'}
-          </Text>
-        </View>
-        <View style={[styles.miniCard, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
-          <Text style={[styles.miniLabel, { color: colors.text3 }]}>Horário</Text>
-          <Text style={[styles.miniValue, { color: colors.text1 }]}>
-            {periodoDisplay()}
-          </Text>
-        </View>
-        <View style={[styles.miniCard, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
-          <Text style={[styles.miniLabel, { color: colors.text3 }]}>Acerto</Text>
-          <Text style={[styles.miniValue, { color: colors.accent }]}>
-            {user?.total_frases_vistas
-              ? Math.round(
-                  ((user.total_frases_corretas || 0) / user.total_frases_vistas) * 100
-                )
-              : 0}
-            %
-          </Text>
-        </View>
-      </View>
-
-      {/* Fases */}
-      <View style={[styles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
-        <Text style={[styles.sectionTitle, { color: colors.text2 }]}>Progresso do app</Text>
-
-        <View style={styles.faseRow}>
-          <Text style={[styles.faseCheck, { color: colors.green }]}>✅</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.faseTitle, { color: colors.text1 }]}>Fase 1 — Fundação</Text>
-            <Text style={[styles.faseDesc, { color: colors.text3 }]}>Expo + Supabase + Tema</Text>
-          </View>
-        </View>
-
-        <View style={styles.faseRow}>
-          <Text style={[styles.faseCheck, { color: colors.green }]}>✅</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.faseTitle, { color: colors.text1 }]}>Fase 2 — Autenticação</Text>
-            <Text style={[styles.faseDesc, { color: colors.text3 }]}>Login e registro</Text>
-          </View>
-        </View>
-
-        <View style={styles.faseRow}>
-          <Text style={[styles.faseCheck, { color: colors.green }]}>✅</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.faseTitle, { color: colors.text1 }]}>Fase 3 — Onboarding</Text>
-            <Text style={[styles.faseDesc, { color: colors.text3 }]}>Caderno + nível + preferências</Text>
-          </View>
-        </View>
-
-        <View style={styles.faseRow}>
-          <Text style={[styles.faseCheck, { color: colors.amber }]}>🚀</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.faseTitle, { color: colors.accent }]}>Fase 4 — Sessão de prática</Text>
-            <Text style={[styles.faseDesc, { color: colors.text3 }]}>Core loop: sei / não sei</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Logout */}
-      <TouchableOpacity
-        activeOpacity={0.7}
-        onPress={signOut}
-        style={[styles.logoutBtn, { borderColor: colors.rose }]}
-      >
-        <Text style={[styles.logoutText, { color: colors.rose }]}>Sair da conta</Text>
-      </TouchableOpacity>
-
-      <View style={{ height: 40 }} />
-    </ScrollView>
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  content: { paddingHorizontal: 20, paddingTop: 60, paddingBottom: 20 },
+  root: {
+    flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  container: {
+    flex: 1,
+  },
+  content: {
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 20,
+  },
 
   // Header
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 16,
+    marginBottom: 24,
   },
-  greeting: { fontSize: 14 },
-  name: { fontSize: 26, fontWeight: '800', marginTop: 2, letterSpacing: -0.5 },
+  greeting: {
+    fontSize: 14,
+  },
+  name: {
+    fontSize: 28,
+    fontWeight: '800',
+    marginTop: 4,
+    letterSpacing: -0.5,
+  },
   themeBtn: {
     width: 44,
     height: 44,
@@ -293,110 +225,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  // Trial banner
-  trialBanner: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    marginBottom: 16,
-    alignSelf: 'flex-start',
-  },
-  trialText: { fontSize: 13, fontWeight: '600' },
-
-  // Session card
-  sessionCard: {
-    borderRadius: 18,
-    padding: 20,
-    marginBottom: 16,
-  },
-  sessionTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-  },
-  sessionEmoji: { fontSize: 36 },
-  sessionInfo: { flex: 1 },
-  sessionTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '800' },
-  sessionSubtitle: { color: 'rgba(255,255,255,0.7)', fontSize: 13, marginTop: 2 },
-  sessionBtn: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 12,
+  // Milestone
+  milestoneBanner: {
     paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 16,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    marginBottom: 16,
   },
-  sessionBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
-  sessionNote: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 11,
+  milestoneText: {
+    fontSize: 14,
+    fontWeight: '700',
     textAlign: 'center',
-    marginTop: 10,
   },
-
-  // Card
-  card: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 18,
-    marginBottom: 14,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  cardIcon: { fontSize: 32 },
-  cardTitle: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.3 },
-  cardValue: { fontSize: 16, fontWeight: '700', marginTop: 2 },
-  cardDetail: { fontSize: 12, marginTop: 10 },
-
-  // Section
-  sectionTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 14,
-  },
-
-  // Profile grid
-  profileGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-  },
-  profileItem: { alignItems: 'center', flex: 1 },
-  profileEmoji: { fontSize: 22, marginBottom: 6 },
-  profileLabel: { fontSize: 11, fontWeight: '500' },
-  profileValue: { fontSize: 15, fontWeight: '700', marginTop: 2 },
-  profileDivider: { width: 1, height: 40 },
-
-  // Status row
-  statusRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 14,
-  },
-  miniCard: {
-    flex: 1,
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 12,
-    alignItems: 'center',
-  },
-  miniLabel: { fontSize: 11, fontWeight: '500' },
-  miniValue: { fontSize: 14, fontWeight: '700', marginTop: 4 },
-
-  // Fases
-  faseRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 12,
-  },
-  faseCheck: { fontSize: 18 },
-  faseTitle: { fontSize: 14, fontWeight: '600' },
-  faseDesc: { fontSize: 12, marginTop: 1 },
 
   // Logout
   logoutBtn: {
@@ -407,5 +247,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 8,
   },
-  logoutText: { fontSize: 15, fontWeight: '600' },
+  logoutText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
 });

@@ -40,10 +40,14 @@
     },
     "extra": {
       "eas": {
-        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+        "projectId": "d2208f21-c6c6-4855-8032-88359cbba8f6"
       },
       "supabaseUrl": "https://iashlxsgjxzlquxliqab.supabase.co",
-      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlhc2hseHNnanp6bHF1eGxpcWFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzIzMDE2NDYsImV4cCI6MjA0Nzg3NzY0Nn0.VlSFAz5VlGEUyOIviTBrRMyjdZOEQVU-y0TdaJjoJl4"
-    }
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlhc2hseHNnanp6bHF1eGxpcWFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzIzMDE2NDYsImV4cCI6MjA0Nzg3NzY0Nn0.VlSFAz5VlGEUyOIviTBrRMyjdZOEQVU-y0TdaJjoJl4",
+      "router": {
+        "origin": false
+      }
+    },
+    "owner": "mneba"
   }
 }

@@ -186,7 +186,7 @@ export default function AssessmentScreen() {
       await refreshProfile();
 
       // Ir para Home
-      router.replace('/(tabs)/home');
+      router.replace('/(tabs)');
 
     } catch (e) {
       console.error('Erro:', e);

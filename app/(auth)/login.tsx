@@ -43,7 +43,7 @@ export default function LoginScreen() {
       try {
         if (user?.onboarding_completo) {
           console.log('>>> Navigating to (tabs)/home');
-          router.replace('/(tabs)/home');
+          router.replace('/(tabs)');
         } else {
           console.log('>>> Navigating to (onboarding)/choose-notebook');
           router.replace('/(onboarding)/choose-notebook');

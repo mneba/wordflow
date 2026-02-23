@@ -1,44 +1,45 @@
 // services/notifications.ts
 // Gerencia push notifications: registro de token, permissões e listeners
-// Usa Expo Push Notifications (https://docs.expo.dev/push-notifications/overview/)
+// NOTA: Todas as funções têm guard para web (onde expo-notifications não funciona)
 
 import { Platform } from 'react-native';
-import * as Notifications from 'expo-notifications';
-import * as Device from 'expo-device';
-import Constants from 'expo-constants';
 import { supabase } from './supabase';
 
-// Configurar como as notificações aparecem quando o app está em foreground
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
+// Imports condicionais — só carrega em mobile
+let Notifications: typeof import('expo-notifications') | null = null;
+let Device: typeof import('expo-device') | null = null;
+let Constants: typeof import('expo-constants')['default'] | null = null;
+
+if (Platform.OS !== 'web') {
+  Notifications = require('expo-notifications');
+  Device = require('expo-device');
+  Constants = require('expo-constants').default;
+
+  // Configurar como as notificações aparecem em foreground
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
+}
 
 /**
  * Registra o dispositivo para push notifications.
- * 1. Verifica se é dispositivo físico
- * 2. Pede permissão
- * 3. Obtém token Expo Push
- * 4. Salva em users.push_token
  */
 export async function registerForPushNotifications(userId: string): Promise<string | null> {
-  // Push não funciona em emulador/web
+  if (Platform.OS === 'web' || !Notifications || !Device || !Constants) {
+    console.log('⚠️ Push notifications não disponíveis nesta plataforma');
+    return null;
+  }
+
   if (!Device.isDevice) {
     console.log('⚠️ Push notifications requerem dispositivo físico');
     return null;
   }
 
-  // Não funciona na web
-  if (Platform.OS === 'web') {
-    console.log('⚠️ Push notifications não disponíveis na web');
-    return null;
-  }
-
   try {
-    // 1. Verificar/pedir permissão
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
 
@@ -52,21 +53,16 @@ export async function registerForPushNotifications(userId: string): Promise<stri
       return null;
     }
 
-    // 2. Obter Project ID do Expo
     const projectId = Constants.expoConfig?.extra?.eas?.projectId;
     if (!projectId) {
       console.error('❌ EAS projectId não configurado em app.json');
       return null;
     }
 
-    // 3. Obter token
-    const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId,
-    });
+    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
     const token = tokenData.data;
     console.log('📱 Push token:', token);
 
-    // 4. Salvar no Supabase
     const { error } = await supabase
       .from('users')
       .update({ push_token: token })
@@ -78,7 +74,7 @@ export async function registerForPushNotifications(userId: string): Promise<stri
       console.log('✅ Push token salvo');
     }
 
-    // 5. Configurar canal Android (necessário para Android 8+)
+    // Canais Android
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', {
         name: 'WordFlow',
@@ -88,7 +84,6 @@ export async function registerForPushNotifications(userId: string): Promise<stri
         sound: 'default',
       });
 
-      // Canal específico para lembretes de prática
       await Notifications.setNotificationChannelAsync('pratica', {
         name: 'Lembretes de Prática',
         description: 'Lembretes para praticar inglês',
@@ -98,7 +93,6 @@ export async function registerForPushNotifications(userId: string): Promise<stri
         sound: 'default',
       });
 
-      // Canal para streak em risco
       await Notifications.setNotificationChannelAsync('streak', {
         name: 'Alertas de Streak',
         description: 'Aviso quando seu streak está em risco',
@@ -131,32 +125,29 @@ export async function unregisterPushNotifications(userId: string): Promise<void>
   }
 }
 
-/**
- * Tipo para a callback de quando o usuário toca na notificação
- */
 export type NotificationResponseCallback = (action: string, data: Record<string, any>) => void;
 
 /**
  * Configura listeners de notificação.
- * Retorna função de cleanup para usar no useEffect.
  */
 export function setupNotificationListeners(
   onTapNotification: NotificationResponseCallback
 ): () => void {
-  // Listener: notificação recebida com app em foreground
+  if (Platform.OS === 'web' || !Notifications) {
+    return () => {}; // noop cleanup
+  }
+
   const foregroundSub = Notifications.addNotificationReceivedListener((notification) => {
     console.log('📬 Notificação recebida (foreground):', notification.request.content.title);
   });
 
-  // Listener: usuário tocou na notificação
   const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
     const data = response.notification.request.content.data || {};
     const action = (data.action as string) || 'open_app';
-    console.log('👆 Notificação tocada, action:', action, 'data:', data);
+    console.log('👆 Notificação tocada, action:', action);
     onTapNotification(action, data);
   });
 
-  // Cleanup
   return () => {
     foregroundSub.remove();
     responseSub.remove();
@@ -164,23 +155,36 @@ export function setupNotificationListeners(
 }
 
 /**
- * Verifica se a última notificação que abriu o app tem dados
- * (útil para cold start — app estava fechado)
+ * Verifica se o app foi aberto por uma notificação (cold start)
  */
 export async function getInitialNotification(): Promise<{ action: string; data: Record<string, any> } | null> {
-  const response = await Notifications.getLastNotificationResponseAsync();
-  if (!response) return null;
+  if (Platform.OS === 'web' || !Notifications) {
+    return null;
+  }
 
-  const data = response.notification.request.content.data || {};
-  return {
-    action: (data.action as string) || 'open_app',
-    data,
-  };
+  try {
+    const response = await Notifications.getLastNotificationResponseAsync();
+    if (!response) return null;
+
+    const data = response.notification.request.content.data || {};
+    return {
+      action: (data.action as string) || 'open_app',
+      data,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Limpa o badge do ícone do app
  */
 export async function clearBadge(): Promise<void> {
-  await Notifications.setBadgeCountAsync(0);
+  if (Platform.OS === 'web' || !Notifications) return;
+
+  try {
+    await Notifications.setBadgeCountAsync(0);
+  } catch {
+    // ignore
+  }
 }

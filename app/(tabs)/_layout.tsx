@@ -1,8 +1,10 @@
 // app/(tabs)/_layout.tsx
 // Tab navigator — 4 abas visíveis + praticar (hidden)
+// Integra push notifications (registra token ao montar)
 
 import { Tabs } from 'expo-router';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '@/context/ThemeContext';
+import { useNotifications } from '@/hooks/useNotifications';
 import { Text, View, StyleSheet } from 'react-native';
 
 type TabIconProps = {
@@ -21,6 +23,9 @@ function TabIcon({ emoji, focused, color }: TabIconProps) {
 
 export default function TabsLayout() {
   const { colors } = useTheme();
+
+  // Registra push token + configura listeners de notificação
+  useNotifications();
 
   return (
     <Tabs
@@ -42,7 +47,6 @@ export default function TabsLayout() {
         },
       }}
     >
-      {/* index.tsx = tela Home (rota padrão do Expo Router) */}
       <Tabs.Screen
         name="index"
         options={{
@@ -80,19 +84,12 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* Telas ocultas da tab bar */}
+      {/* Praticar: oculta da tab bar */}
       <Tabs.Screen
         name="praticar"
         options={{
-          href: null,          // Não aparece na tab bar
-          tabBarStyle: { display: 'none' },  // Esconde a tab bar durante prática
-        }}
-      />
-      {/* Se home.tsx ainda existir no diretório, esconder */}
-      <Tabs.Screen
-        name="home"
-        options={{
           href: null,
+          tabBarStyle: { display: 'none' },
         }}
       />
     </Tabs>

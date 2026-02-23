@@ -16,14 +16,14 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
-import { useHomeData } from '../../hooks/useHomeData';
-import { getGreeting } from '../../utils/mensagensContextuais';
+import { useTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
+import { useHomeData } from '@/hooks/useHomeData';
+import { getGreeting } from '@/utils/mensagensContextuais';
 
-import StreakPopup from '../../components/StreakPopup';
-import SessionCard from '../../components/SessionCard';
-import FlipCard from '../../components/FlipCard';
+import StreakPopup from '@/components/StreakPopup';
+import SessionCard from '@/components/SessionCard';
+import FlipCard from '@/components/FlipCard';
 
 const haptic = (style = Haptics.ImpactFeedbackStyle.Medium) => {
   if (Platform.OS !== 'web') Haptics.impactAsync(style);

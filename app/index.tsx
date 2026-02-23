@@ -1,8 +1,5 @@
 // app/index.tsx
-// Splash → redireciona baseado no estado do usuário:
-//   - Não logado → (auth)/login
-//   - Logado + onboarding incompleto → (onboarding)/choose-notebook
-//   - Logado + onboarding completo → (tabs)/home
+// Splash → redireciona baseado no estado do usuário
 
 import { useEffect } from 'react';
 import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
@@ -16,25 +13,17 @@ export default function IndexScreen() {
   const router = useRouter();
 
   useEffect(() => {
-    console.log('=== INDEX REDIRECT ===');
-    console.log('initializing:', initializing);
-    console.log('session:', !!session);
-    console.log('user:', !!user, 'onboarding:', user?.onboarding_completo);
-    
-    // Esperar inicialização do auth
     if (initializing) return;
 
-    // Pequeno delay para splash visual
     const timer = setTimeout(() => {
       if (!session) {
-        console.log('>>> No session, going to login');
         router.replace('/(auth)/login');
       } else if (!user?.onboarding_completo) {
-        console.log('>>> Session but no onboarding, going to choose-notebook');
         router.replace('/(onboarding)/choose-notebook');
       } else {
-        console.log('>>> All good, going to home');
-        router.replace('/(tabs)/home');
+        // CORRIGIDO: /(tabs) abre index.tsx (Home)
+        // Antes era /(tabs)/home que estava com href:null
+        router.replace('/(tabs)');
       }
     }, 600);
 

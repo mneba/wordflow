@@ -118,7 +118,7 @@ export default function PreferencesScreen() {
       await refreshProfile();
 
       // Redirecionar para o app principal
-      router.replace('/(tabs)/home');
+      router.replace('/(tabs)');
     } catch (e) {
       console.error('Erro:', e);
       Alert.alert('Erro', 'Algo deu errado. Tente novamente.');

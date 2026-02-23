@@ -1,7 +1,6 @@
 // components/FlipCard.tsx
 // Flip card com animação de porta giratória
 // Frente: AnalyticsCard | Verso: CalendarRings
-// Usa Animated API nativa (sem Reanimated dependency)
 
 import { useRef, useState } from 'react';
 import { View, StyleSheet, Animated, TouchableWithoutFeedback } from 'react-native';
@@ -31,39 +30,20 @@ export default function FlipCard({
   diasAtivos,
   mediaAcerto,
 }: FlipCardProps) {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const [isFlipped, setIsFlipped] = useState(false);
   const flipAnim = useRef(new Animated.Value(0)).current;
 
-  const flipToBack = () => {
-    Animated.spring(flipAnim, {
-      toValue: 1,
-      tension: 50,
-      friction: 10,
-      useNativeDriver: true,
-    }).start();
-    setIsFlipped(true);
-  };
-
-  const flipToFront = () => {
-    Animated.spring(flipAnim, {
-      toValue: 0,
-      tension: 50,
-      friction: 10,
-      useNativeDriver: true,
-    }).start();
-    setIsFlipped(false);
-  };
-
   const toggle = () => {
-    if (isFlipped) {
-      flipToFront();
-    } else {
-      flipToBack();
-    }
+    Animated.spring(flipAnim, {
+      toValue: isFlipped ? 0 : 1,
+      tension: 50,
+      friction: 10,
+      useNativeDriver: true,
+    }).start();
+    setIsFlipped(!isFlipped);
   };
 
-  // Interpolações de rotação
   const frontRotate = flipAnim.interpolate({
     inputRange: [0, 1],
     outputRange: ['0deg', '180deg'],
@@ -74,7 +54,6 @@ export default function FlipCard({
     outputRange: ['180deg', '360deg'],
   });
 
-  // Opacidade para esconder a face de trás quando não está visível
   const frontOpacity = flipAnim.interpolate({
     inputRange: [0, 0.5, 0.5, 1],
     outputRange: [1, 1, 0, 0],
@@ -91,9 +70,9 @@ export default function FlipCard({
   };
 
   return (
-    <View style={styles.container}>
-      {/* Frente: Analytics */}
-      <TouchableWithoutFeedback onPress={toggle}>
+    <TouchableWithoutFeedback onPress={toggle}>
+      <View style={styles.container}>
+        {/* Frente: Analytics */}
         <Animated.View
           style={[
             styles.face,
@@ -102,9 +81,9 @@ export default function FlipCard({
             {
               transform: [{ perspective: 1000 }, { rotateY: frontRotate }],
               opacity: frontOpacity,
-              zIndex: isFlipped ? 0 : 1,
             },
           ]}
+          pointerEvents={isFlipped ? 'none' : 'auto'}
         >
           <AnalyticsCard
             cadernoNome={cadernoNome}
@@ -113,42 +92,48 @@ export default function FlipCard({
             taxaAcerto={taxaAcerto}
           />
         </Animated.View>
-      </TouchableWithoutFeedback>
 
-      {/* Verso: Calendário */}
-      <Animated.View
-        style={[
-          styles.face,
-          styles.card,
-          cardStyle,
-          {
-            transform: [{ perspective: 1000 }, { rotateY: backRotate }],
-            opacity: backOpacity,
-            zIndex: isFlipped ? 1 : 0,
-          },
-        ]}
-      >
-        <CalendarRings
-          historicoMes={historicoMes}
-          diasConsecutivos={diasConsecutivos}
-          diasAtivos={diasAtivos}
-          mediaAcerto={mediaAcerto}
-          onClose={flipToFront}
-        />
-      </Animated.View>
-    </View>
+        {/* Verso: Calendário */}
+        <Animated.View
+          style={[
+            styles.face,
+            styles.faceBack,
+            styles.card,
+            cardStyle,
+            {
+              transform: [{ perspective: 1000 }, { rotateY: backRotate }],
+              opacity: backOpacity,
+            },
+          ]}
+          pointerEvents={isFlipped ? 'auto' : 'none'}
+        >
+          <CalendarRings
+            historicoMes={historicoMes}
+            diasConsecutivos={diasConsecutivos}
+            diasAtivos={diasAtivos}
+            mediaAcerto={mediaAcerto}
+            onClose={toggle}
+          />
+        </Animated.View>
+      </View>
+    </TouchableWithoutFeedback>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     marginBottom: 20,
-    minHeight: 380,
+    minHeight: 340,
   },
   face: {
-    position: 'absolute',
     width: '100%',
     backfaceVisibility: 'hidden',
+  },
+  faceBack: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
   },
   card: {
     borderRadius: 20,

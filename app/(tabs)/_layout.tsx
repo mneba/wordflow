@@ -1,30 +1,15 @@
 // app/(tabs)/_layout.tsx
-// Tab navigator — 4 abas visíveis + praticar (hidden)
-// Integra push notifications (registra token ao montar)
+// 3 tabs: Início, Cadernos, Perfil
+// Ícones vetoriais via Ionicons (já incluído no Expo)
 
 import { Tabs } from 'expo-router';
 import { useTheme } from '@/context/ThemeContext';
 import { useNotifications } from '@/hooks/useNotifications';
-import { Text, View, StyleSheet } from 'react-native';
-
-type TabIconProps = {
-  emoji: string;
-  focused: boolean;
-  color: string;
-};
-
-function TabIcon({ emoji, focused, color }: TabIconProps) {
-  return (
-    <View style={styles.tabIcon}>
-      <Text style={{ fontSize: focused ? 22 : 20 }}>{emoji}</Text>
-    </View>
-  );
-}
+import { Ionicons } from '@expo/vector-icons';
 
 export default function TabsLayout() {
   const { colors } = useTheme();
 
-  // Registra push token + configura listeners de notificação
   useNotifications();
 
   return (
@@ -35,15 +20,18 @@ export default function TabsLayout() {
           backgroundColor: colors.bgCard,
           borderTopColor: colors.border,
           borderTopWidth: 1,
-          height: 60,
-          paddingBottom: 8,
+          height: 64,
+          paddingBottom: 10,
           paddingTop: 8,
+          elevation: 0,
+          shadowOpacity: 0,
         },
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.text3,
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: '600',
+          marginTop: 0,
         },
       }}
     >
@@ -51,17 +39,12 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'Início',
-          tabBarIcon: ({ focused, color }) => (
-            <TabIcon emoji="🏠" focused={focused} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="progress"
-        options={{
-          title: 'Progresso',
-          tabBarIcon: ({ focused, color }) => (
-            <TabIcon emoji="📊" focused={focused} color={color} />
+          tabBarIcon: ({ focused, color, size }) => (
+            <Ionicons
+              name={focused ? 'home' : 'home-outline'}
+              size={22}
+              color={color}
+            />
           ),
         }}
       />
@@ -69,36 +52,36 @@ export default function TabsLayout() {
         name="notebooks"
         options={{
           title: 'Cadernos',
-          tabBarIcon: ({ focused, color }) => (
-            <TabIcon emoji="📓" focused={focused} color={color} />
+          tabBarIcon: ({ focused, color, size }) => (
+            <Ionicons
+              name={focused ? 'book' : 'book-outline'}
+              size={22}
+              color={color}
+            />
           ),
         }}
       />
       <Tabs.Screen
-        name="settings"
+        name="profile"
         options={{
-          title: 'Config',
-          tabBarIcon: ({ focused, color }) => (
-            <TabIcon emoji="⚙️" focused={focused} color={color} />
+          title: 'Perfil',
+          tabBarIcon: ({ focused, color, size }) => (
+            <Ionicons
+              name={focused ? 'person-circle' : 'person-circle-outline'}
+              size={24}
+              color={color}
+            />
           ),
         }}
       />
 
-      {/* Praticar: oculta da tab bar */}
+      {/* Ocultas */}
       <Tabs.Screen
         name="praticar"
-        options={{
-          href: null,
-          tabBarStyle: { display: 'none' },
-        }}
+        options={{ href: null, tabBarStyle: { display: 'none' } }}
       />
+      <Tabs.Screen name="progress" options={{ href: null }} />
+      <Tabs.Screen name="settings" options={{ href: null }} />
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  tabIcon: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});

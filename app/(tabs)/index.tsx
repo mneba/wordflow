@@ -1,7 +1,5 @@
 // app/(tabs)/index.tsx
-// Tela Home — implementação completa Fase 4A
-// Princípios: Lei do Menor Esforço, Aversão à Perda, Zeigarnik,
-// Variabilidade de Recompensa, Identidade, Progressão Visual
+// Tela Home — header com logo + avatar, sessão, analytics
 
 import { useState, useCallback, useMemo } from 'react';
 import {
@@ -30,8 +28,8 @@ const haptic = (style = Haptics.ImpactFeedbackStyle.Medium) => {
 };
 
 export default function HomeScreen() {
-  const { colors, toggleTheme, mode, isDark } = useTheme();
-  const { user, signOut, refreshProfile } = useAuth();
+  const { colors, toggleTheme, mode } = useTheme();
+  const { user, refreshProfile } = useAuth();
   const router = useRouter();
 
   const {
@@ -39,7 +37,6 @@ export default function HomeScreen() {
     sessaoAtiva,
     sessaoConcluidaHoje,
     frasesStats,
-    revisoesHoje,
     revisoesAmanha,
     historicoMes,
     contexto,
@@ -55,27 +52,30 @@ export default function HomeScreen() {
     setRefreshing(false);
   }, [refreshProfile, refresh]);
 
-  // Saudação
   const greeting = getGreeting();
   const nome = user?.nome?.split(' ')[0] || 'Estudante';
 
-  // Taxa de acerto
+  // Iniciais para avatar
+  const iniciais = (user?.nome || 'U')
+    .split(' ')
+    .map((p: string) => p[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+
   const taxaAcerto = useMemo(() => {
     if (!user?.total_frases_vistas) return 0;
     return Math.round(((user.total_frases_corretas || 0) / user.total_frases_vistas) * 100);
   }, [user?.total_frases_vistas, user?.total_frases_corretas]);
 
-  // Dias ativos no mês
   const diasAtivos = historicoMes.length;
 
-  // Média de acerto no mês
   const mediaAcerto = useMemo(() => {
     if (historicoMes.length === 0) return 0;
     const soma = historicoMes.reduce((acc, d) => acc + d.taxa, 0);
     return Math.round(soma / historicoMes.length);
   }, [historicoMes]);
 
-  // Navegação para prática
   const handleIniciarPratica = useCallback(() => {
     haptic();
     router.push('/(tabs)/praticar');
@@ -86,7 +86,6 @@ export default function HomeScreen() {
     router.push('/(tabs)/praticar');
   }, [router]);
 
-  // Milestone banner
   const milestoneMsg = useMemo(() => {
     const dias = user?.dias_consecutivos || 0;
     if (dias === 7) return '🎉 7 dias seguidos! Você é consistente!';
@@ -97,7 +96,6 @@ export default function HomeScreen() {
     return null;
   }, [user?.dias_consecutivos]);
 
-  // Loading state
   if (loading && !user) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: colors.bg }]}>
@@ -108,7 +106,6 @@ export default function HomeScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
-      {/* Popup de streak */}
       <StreakPopup
         diasConsecutivos={user?.dias_consecutivos || 0}
         streakEmRisco={contexto.streakEmRisco}
@@ -121,32 +118,51 @@ export default function HomeScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.accent}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
         }
       >
-        {/* ─── Header ─── */}
-        <View style={styles.headerRow}>
-          <View>
-            <Text style={[styles.greeting, { color: colors.text2 }]}>
-              {greeting.text} {greeting.icon}
-            </Text>
-            <Text style={[styles.name, { color: colors.text1 }]}>{nome}</Text>
+        {/* ─── Header: Logo + Avatar ─── */}
+        <View style={styles.topBar}>
+          <View style={styles.logoRow}>
+            <Text style={[styles.logoIcon, { color: colors.accent }]}>⚡</Text>
+            <Text style={[styles.logoText, { color: colors.text1 }]}>WordFlow</Text>
           </View>
-          <TouchableOpacity onPress={toggleTheme} style={styles.themeBtn}>
-            <Text style={{ fontSize: 24 }}>{mode === 'dark' ? '🌙' : '☀️'}</Text>
-          </TouchableOpacity>
+          <View style={styles.topRight}>
+            <TouchableOpacity onPress={toggleTheme} style={styles.themeBtn}>
+              <Text style={{ fontSize: 20 }}>{mode === 'dark' ? '🌙' : '☀️'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => router.push('/(tabs)/profile')}
+              style={[styles.avatarSmall, { backgroundColor: colors.accent }]}
+            >
+              <Text style={styles.avatarSmallText}>{iniciais}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* ─── Milestone banner ─── */}
+        {/* ─── Saudação ─── */}
+        <Text style={[styles.greeting, { color: colors.text2 }]}>
+          {greeting.text} {greeting.icon}
+        </Text>
+        <Text style={[styles.name, { color: colors.text1 }]}>{nome}</Text>
+
+        {/* ─── Streak resumo ─── */}
+        <View style={[styles.streakBar, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+          <Text style={{ fontSize: 20 }}>🔥</Text>
+          <View style={styles.streakInfo}>
+            <Text style={[styles.streakValue, { color: colors.text1 }]}>
+              {user?.dias_consecutivos || 0} {(user?.dias_consecutivos || 0) === 1 ? 'dia' : 'dias'} seguidos
+            </Text>
+            <Text style={[styles.streakDesc, { color: colors.text3 }]}>
+              Pratique todos os dias para manter sua sequência
+            </Text>
+          </View>
+        </View>
+
+        {/* ─── Milestone ─── */}
         {milestoneMsg && (
           <View style={[styles.milestoneBanner, { backgroundColor: colors.amberLight }]}>
-            <Text style={[styles.milestoneText, { color: colors.amber }]}>
-              {milestoneMsg}
-            </Text>
+            <Text style={[styles.milestoneText, { color: colors.amber }]}>{milestoneMsg}</Text>
           </View>
         )}
 
@@ -173,65 +189,62 @@ export default function HomeScreen() {
           mediaAcerto={mediaAcerto}
         />
 
-        {/* Spacer para o FlipCard (usa position absolute internamente) */}
-        <View style={{ height: 400 }} />
-
-        {/* ─── Logout ─── */}
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={signOut}
-          style={[styles.logoutBtn, { borderColor: colors.border }]}
-        >
-          <Text style={[styles.logoutText, { color: colors.text3 }]}>Sair da conta</Text>
-        </TouchableOpacity>
-
-        <View style={{ height: 40 }} />
+        <View style={{ height: 20 }} />
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  container: {
-    flex: 1,
-  },
-  content: {
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 20,
-  },
+  root: { flex: 1 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  container: { flex: 1 },
+  content: { paddingHorizontal: 20, paddingTop: 54, paddingBottom: 20 },
 
-  // Header
-  headerRow: {
+  // Top bar
+  topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 24,
+    alignItems: 'center',
+    marginBottom: 20,
   },
-  greeting: {
-    fontSize: 14,
-  },
-  name: {
-    fontSize: 28,
-    fontWeight: '800',
-    marginTop: 4,
-    letterSpacing: -0.5,
-  },
+  logoRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  logoIcon: { fontSize: 22 },
+  logoText: { fontSize: 20, fontWeight: '800', letterSpacing: -0.5 },
+  topRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   themeBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  avatarSmall: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarSmallText: { fontSize: 13, fontWeight: '800', color: '#fff' },
+
+  // Greeting
+  greeting: { fontSize: 14 },
+  name: { fontSize: 26, fontWeight: '800', marginTop: 2, marginBottom: 16, letterSpacing: -0.5 },
+
+  // Streak bar
+  streakBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 12,
+    marginBottom: 16,
+  },
+  streakInfo: { flex: 1 },
+  streakValue: { fontSize: 15, fontWeight: '700' },
+  streakDesc: { fontSize: 12, marginTop: 2 },
 
   // Milestone
   milestoneBanner: {
@@ -240,23 +253,5 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     marginBottom: 16,
   },
-  milestoneText: {
-    fontSize: 14,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-
-  // Logout
-  logoutBtn: {
-    borderWidth: 1,
-    borderRadius: 14,
-    height: 48,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  logoutText: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
+  milestoneText: { fontSize: 14, fontWeight: '700', textAlign: 'center' },
 });

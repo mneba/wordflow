@@ -25,9 +25,9 @@ import Animated, {
   runOnJS,
   Easing,
 } from 'react-native-reanimated';
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
-import { supabase } from '../../services/supabase';
+import { useTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/services/supabase';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -338,13 +338,16 @@ export default function PraticarScreen() {
       ? Math.round((sessaoInfo.acertos / sessaoInfo.total_frases) * 100) 
       : 0;
 
+    const emoji = taxa >= 80 ? '🏆' : taxa >= 50 ? '💪' : '🧠';
+    const titulo = taxa >= 80 ? 'Excelente!' : taxa >= 50 ? 'Bom trabalho!' : 'Continue praticando!';
+
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
         <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
         <View style={styles.centerContent}>
-          <Text style={styles.resumoEmoji}>🎯</Text>
+          <Text style={styles.resumoEmoji}>{emoji}</Text>
           <Text style={[styles.resumoTitle, { color: colors.text1 }]}>
-            Sessão concluída!
+            {titulo}
           </Text>
           
           <View style={[styles.resumoCard, { backgroundColor: colors.bgCard }]}>
@@ -367,7 +370,7 @@ export default function PraticarScreen() {
               </Text>
             </View>
             <View style={[styles.resumoRow, styles.resumoRowLast]}>
-              <Text style={[styles.resumoLabel, { color: colors.text2 }]}>Taxa</Text>
+              <Text style={[styles.resumoLabel, { color: colors.text2 }]}>Taxa de acerto</Text>
               <Text style={[styles.resumoValue, { color: colors.accent }]}>
                 {taxa}%
               </Text>
@@ -375,10 +378,10 @@ export default function PraticarScreen() {
           </View>
 
           <TouchableOpacity
-            style={[styles.retryButton, { backgroundColor: colors.accent }]}
+            style={[styles.continuarButton, { backgroundColor: colors.accent, marginBottom: 12 }]}
             onPress={voltarParaHome}
           >
-            <Text style={styles.retryButtonText}>Voltar para Home</Text>
+            <Text style={styles.continuarButtonText}>Voltar para Início</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -435,6 +438,11 @@ export default function PraticarScreen() {
                  fraseAtual.estado === 'manutencao' ? '💪 Manutenção' : ''}
               </Text>
             </View>
+          )}
+
+          {/* Spacer para não encavalar com badge */}
+          {fraseAtual?.estado && fraseAtual.estado !== 'nova' && (
+            <View style={{ height: 20 }} />
           )}
 
           {/* Frase em inglês */}

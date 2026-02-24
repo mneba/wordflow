@@ -1,80 +1,93 @@
 // services/notifications.ts
-// Gerencia push notifications: registro de token, permissões e listeners
-// NOTA: Todas as funções têm guard para web (onde expo-notifications não funciona)
+// Push notifications - registro, permissões e listeners
+// Guard para web (expo-notifications não funciona)
 
 import { Platform } from 'react-native';
 import { supabase } from './supabase';
 
-// Imports condicionais — só carrega em mobile
+// ProjectId hardcoded como fallback (EAS builds podem não ter Constants.expoConfig)
+const EAS_PROJECT_ID = 'd2208f21-c6c6-4855-8032-88359cbba8f6';
+
 let Notifications: typeof import('expo-notifications') | null = null;
 let Device: typeof import('expo-device') | null = null;
 let Constants: typeof import('expo-constants')['default'] | null = null;
 
 if (Platform.OS !== 'web') {
-  Notifications = require('expo-notifications');
-  Device = require('expo-device');
-  Constants = require('expo-constants').default;
+  try {
+    Notifications = require('expo-notifications');
+    Device = require('expo-device');
+    Constants = require('expo-constants').default;
 
-  // Configurar como as notificações aparecem em foreground
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: true,
-    }),
-  });
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+      }),
+    });
+  } catch (e) {
+    console.error('❌ Erro ao carregar módulos de notificação:', e);
+  }
 }
 
-/**
- * Registra o dispositivo para push notifications.
- */
 export async function registerForPushNotifications(userId: string): Promise<string | null> {
-  if (Platform.OS === 'web' || !Notifications || !Device || !Constants) {
-    console.log('⚠️ Push notifications não disponíveis nesta plataforma');
+  console.log('🔔 registerForPushNotifications chamado para userId:', userId);
+
+  if (Platform.OS === 'web' || !Notifications || !Device) {
+    console.log('⚠️ Push não disponível: web ou módulos ausentes');
     return null;
   }
 
   if (!Device.isDevice) {
-    console.log('⚠️ Push notifications requerem dispositivo físico');
+    console.log('⚠️ Push requer dispositivo físico (não emulador)');
     return null;
   }
 
   try {
+    // 1. Verificar/solicitar permissão
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
+    console.log('📋 Status permissão atual:', existingStatus);
 
+    let finalStatus = existingStatus;
     if (existingStatus !== 'granted') {
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
+      console.log('📋 Status após solicitar:', finalStatus);
     }
 
     if (finalStatus !== 'granted') {
-      console.log('⚠️ Permissão de notificação negada');
+      console.log('❌ Permissão de notificação NEGADA');
       return null;
     }
 
-    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+    // 2. Obter projectId (tentar Constants, fallback para hardcoded)
+    let projectId = Constants?.expoConfig?.extra?.eas?.projectId;
+    console.log('🔑 projectId de Constants:', projectId);
+
     if (!projectId) {
-      console.error('❌ EAS projectId não configurado em app.json');
-      return null;
+      projectId = EAS_PROJECT_ID;
+      console.log('🔑 Usando projectId hardcoded:', projectId);
     }
 
+    // 3. Obter push token
+    console.log('📡 Solicitando push token...');
     const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
     const token = tokenData.data;
-    console.log('📱 Push token:', token);
+    console.log('📱 Push token obtido:', token);
 
+    // 4. Salvar no banco
     const { error } = await supabase
       .from('users')
       .update({ push_token: token })
       .eq('id', userId);
 
     if (error) {
-      console.error('❌ Erro ao salvar push_token:', error);
+      console.error('❌ Erro ao salvar push_token no Supabase:', error.message);
     } else {
-      console.log('✅ Push token salvo');
+      console.log('✅ Push token salvo no Supabase com sucesso');
     }
 
-    // Canais Android
+    // 5. Canais Android
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', {
         name: 'WordFlow',
@@ -84,9 +97,9 @@ export async function registerForPushNotifications(userId: string): Promise<stri
         sound: 'default',
       });
 
-      await Notifications.setNotificationChannelAsync('pratica', {
-        name: 'Lembretes de Prática',
-        description: 'Lembretes para praticar inglês',
+      await Notifications.setNotificationChannelAsync('wordflow-frases', {
+        name: 'Frases do Dia',
+        description: 'Frases para praticar ao longo do dia',
         importance: Notifications.AndroidImportance.HIGH,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#6B5CD7',
@@ -101,24 +114,20 @@ export async function registerForPushNotifications(userId: string): Promise<stri
         lightColor: '#F59E0B',
         sound: 'default',
       });
+
+      console.log('📢 Canais Android configurados');
     }
 
     return token;
-  } catch (error) {
-    console.error('❌ Erro ao registrar push:', error);
+  } catch (error: any) {
+    console.error('❌ Erro ao registrar push:', error?.message || error);
     return null;
   }
 }
 
-/**
- * Remove o push token do usuário (ex: ao fazer logout)
- */
 export async function unregisterPushNotifications(userId: string): Promise<void> {
   try {
-    await supabase
-      .from('users')
-      .update({ push_token: null })
-      .eq('id', userId);
+    await supabase.from('users').update({ push_token: null }).eq('id', userId);
     console.log('✅ Push token removido');
   } catch (error) {
     console.error('❌ Erro ao remover push_token:', error);
@@ -127,24 +136,21 @@ export async function unregisterPushNotifications(userId: string): Promise<void>
 
 export type NotificationResponseCallback = (action: string, data: Record<string, any>) => void;
 
-/**
- * Configura listeners de notificação.
- */
 export function setupNotificationListeners(
   onTapNotification: NotificationResponseCallback
 ): () => void {
   if (Platform.OS === 'web' || !Notifications) {
-    return () => {}; // noop cleanup
+    return () => {};
   }
 
   const foregroundSub = Notifications.addNotificationReceivedListener((notification) => {
-    console.log('📬 Notificação recebida (foreground):', notification.request.content.title);
+    console.log('📬 Push recebido (foreground):', notification.request.content.title);
   });
 
   const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
     const data = response.notification.request.content.data || {};
     const action = (data.action as string) || 'open_app';
-    console.log('👆 Notificação tocada, action:', action);
+    console.log('👆 Push tocado, action:', action);
     onTapNotification(action, data);
   });
 
@@ -154,37 +160,22 @@ export function setupNotificationListeners(
   };
 }
 
-/**
- * Verifica se o app foi aberto por uma notificação (cold start)
- */
 export async function getInitialNotification(): Promise<{ action: string; data: Record<string, any> } | null> {
-  if (Platform.OS === 'web' || !Notifications) {
-    return null;
-  }
+  if (Platform.OS === 'web' || !Notifications) return null;
 
   try {
     const response = await Notifications.getLastNotificationResponseAsync();
     if (!response) return null;
-
     const data = response.notification.request.content.data || {};
-    return {
-      action: (data.action as string) || 'open_app',
-      data,
-    };
+    return { action: (data.action as string) || 'open_app', data };
   } catch {
     return null;
   }
 }
 
-/**
- * Limpa o badge do ícone do app
- */
 export async function clearBadge(): Promise<void> {
   if (Platform.OS === 'web' || !Notifications) return;
-
   try {
     await Notifications.setBadgeCountAsync(0);
-  } catch {
-    // ignore
-  }
+  } catch {}
 }

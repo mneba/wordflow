@@ -35,8 +35,8 @@ export interface ThemePalette {
 export const darkTheme: ThemePalette = {
   // Backgrounds
   bg: '#0E0E16',
-  bgCard: '#151520',
-  bgRaised: '#1A1A28',
+  bgCard: '#1C1C2A',
+  bgRaised: '#252536',
 
   // Accent colors
   accent: '#8B7CF7',
@@ -56,7 +56,7 @@ export const darkTheme: ThemePalette = {
   text3: '#5A5A70',
 
   // Borders & Surfaces
-  border: 'rgba(255, 255, 255, 0.05)',
+  border: 'rgba(255, 255, 255, 0.10)',
   shadow: 'transparent',
 
   // Status bar

@@ -338,16 +338,13 @@ export default function PraticarScreen() {
       ? Math.round((sessaoInfo.acertos / sessaoInfo.total_frases) * 100) 
       : 0;
 
-    const emoji = taxa >= 80 ? '🏆' : taxa >= 50 ? '💪' : '🧠';
-    const titulo = taxa >= 80 ? 'Excelente!' : taxa >= 50 ? 'Bom trabalho!' : 'Continue praticando!';
-
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
         <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
         <View style={styles.centerContent}>
-          <Text style={styles.resumoEmoji}>{emoji}</Text>
+          <Text style={styles.resumoEmoji}>🎯</Text>
           <Text style={[styles.resumoTitle, { color: colors.text1 }]}>
-            {titulo}
+            Sessão concluída!
           </Text>
           
           <View style={[styles.resumoCard, { backgroundColor: colors.bgCard }]}>
@@ -370,7 +367,7 @@ export default function PraticarScreen() {
               </Text>
             </View>
             <View style={[styles.resumoRow, styles.resumoRowLast]}>
-              <Text style={[styles.resumoLabel, { color: colors.text2 }]}>Taxa de acerto</Text>
+              <Text style={[styles.resumoLabel, { color: colors.text2 }]}>Taxa</Text>
               <Text style={[styles.resumoValue, { color: colors.accent }]}>
                 {taxa}%
               </Text>
@@ -378,10 +375,10 @@ export default function PraticarScreen() {
           </View>
 
           <TouchableOpacity
-            style={[styles.continuarButton, { backgroundColor: colors.accent, marginBottom: 12 }]}
+            style={[styles.retryButton, { backgroundColor: colors.accent }]}
             onPress={voltarParaHome}
           >
-            <Text style={styles.continuarButtonText}>Voltar para Início</Text>
+            <Text style={styles.retryButtonText}>Voltar para Home</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -438,11 +435,6 @@ export default function PraticarScreen() {
                  fraseAtual.estado === 'manutencao' ? '💪 Manutenção' : ''}
               </Text>
             </View>
-          )}
-
-          {/* Spacer para não encavalar com badge */}
-          {fraseAtual?.estado && fraseAtual.estado !== 'nova' && (
-            <View style={{ height: 20 }} />
           )}
 
           {/* Frase em inglês */}
@@ -540,7 +532,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 48,
     paddingBottom: 16,
   },
   closeButton: {
@@ -590,11 +582,13 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 20,
+    marginBottom: 8,
   },
   phraseCard: {
     borderRadius: 20,
     padding: 24,
-    minHeight: 280,
+    paddingTop: 48,
+    maxHeight: 460,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -604,22 +598,21 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   estadoBadge: {
-    position: 'absolute',
-    top: 16,
-    left: 16,
+    alignSelf: 'flex-start',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 12,
+    marginBottom: 16,
   },
   estadoText: {
     fontSize: 12,
     fontWeight: '500',
   },
   phraseText: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: '600',
     textAlign: 'center',
-    lineHeight: 38,
+    lineHeight: 34,
   },
 
   // Feedback
@@ -650,13 +643,13 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   traducaoText: {
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: '500',
     textAlign: 'center',
     marginBottom: 8,
   },
   explicacaoText: {
-    fontSize: 14,
+    fontSize: 13,
     textAlign: 'center',
     fontStyle: 'italic',
   },

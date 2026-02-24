@@ -2,7 +2,7 @@
 // Tela de Prática - Core Loop do WordFlow
 // Fase 4 - Implementação completa
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import { Audio } from 'expo-av';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -74,6 +75,105 @@ export default function PraticarScreen() {
   const [fraseInfo, setFraseInfo] = useState<{ traducao: string; explicacao: string | null } | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [mensagemMotivacional, setMensagemMotivacional] = useState<string>('');
+
+  // Áudio
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
+  const soundRef = useRef<Audio.Sound | null>(null);
+
+  // Cleanup áudio ao desmontar
+  useEffect(() => {
+    return () => {
+      if (soundRef.current) {
+        soundRef.current.unloadAsync();
+      }
+    };
+  }, []);
+
+  // Função para tocar áudio da frase
+  const playAudio = async () => {
+    if (!fraseAtual) return;
+    
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+
+    // Se está tocando, parar
+    if (isPlaying && soundRef.current) {
+      await soundRef.current.stopAsync();
+      await soundRef.current.unloadAsync();
+      soundRef.current = null;
+      setIsPlaying(false);
+      return;
+    }
+
+    let audioUrl = fraseAtual.audio_url;
+
+    // Se não tem áudio, gerar via Edge Function
+    if (!audioUrl) {
+      setIsGeneratingAudio(true);
+      try {
+        const response = await supabase.functions.invoke('gerar-audio', {
+          body: { frase_id: fraseAtual.frase_id, texto: fraseAtual.frase },
+        });
+        if (response.data?.success && response.data?.audio_url) {
+          audioUrl = response.data.audio_url;
+          // Atualizar no array local para não gerar de novo
+          setFrases(prev => prev.map((f, i) =>
+            i === fraseAtualIndex ? { ...f, audio_url: audioUrl! } : f
+          ));
+        } else {
+          console.log('❌ Falha ao gerar áudio');
+          setIsGeneratingAudio(false);
+          return;
+        }
+      } catch (err) {
+        console.error('❌ Erro ao gerar áudio:', err);
+        setIsGeneratingAudio(false);
+        return;
+      }
+      setIsGeneratingAudio(false);
+    }
+
+    if (!audioUrl) return;
+
+    // Parar som anterior se houver
+    if (soundRef.current) {
+      await soundRef.current.unloadAsync();
+      soundRef.current = null;
+    }
+
+    try {
+      setIsPlaying(true);
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: audioUrl },
+        { shouldPlay: true }
+      );
+      soundRef.current = sound;
+
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          setIsPlaying(false);
+          sound.unloadAsync();
+          soundRef.current = null;
+        }
+      });
+    } catch (err) {
+      console.error('❌ Erro ao tocar áudio:', err);
+      setIsPlaying(false);
+    }
+  };
+
+  // Parar áudio ao trocar de frase
+  useEffect(() => {
+    if (soundRef.current) {
+      soundRef.current.stopAsync().then(() => {
+        soundRef.current?.unloadAsync();
+        soundRef.current = null;
+      });
+      setIsPlaying(false);
+    }
+  }, [fraseAtualIndex]);
 
   // Animações
   const cardOpacity = useSharedValue(1);
@@ -442,6 +542,31 @@ export default function PraticarScreen() {
             {fraseAtual?.frase}
           </Text>
 
+          {/* Botão de áudio */}
+          <TouchableOpacity
+            onPress={playAudio}
+            disabled={isGeneratingAudio}
+            style={[
+              styles.audioButton,
+              {
+                backgroundColor: isPlaying ? colors.accent : colors.bgRaised,
+                borderColor: isPlaying ? colors.accent : colors.border,
+              },
+            ]}
+            activeOpacity={0.7}
+          >
+            {isGeneratingAudio ? (
+              <ActivityIndicator size="small" color={colors.accent} />
+            ) : (
+              <>
+                <Text style={{ fontSize: 18 }}>{isPlaying ? '⏸' : '🔊'}</Text>
+                <Text style={[styles.audioButtonText, { color: isPlaying ? '#fff' : colors.text2 }]}>
+                  {isGeneratingAudio ? 'Gerando...' : isPlaying ? 'Pausar' : 'Ouvir pronúncia'}
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+
           {/* Feedback (quando respondido) */}
           {estado === 'feedback' && (
             <Animated.View style={[styles.feedbackContainer, feedbackAnimatedStyle]}>
@@ -617,9 +742,26 @@ const styles = StyleSheet.create({
 
   // Feedback
   feedbackContainer: {
-    marginTop: 24,
+    marginTop: 20,
     alignItems: 'center',
     width: '100%',
+  },
+
+  // Áudio
+  audioButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 24,
+    borderWidth: 1,
+  },
+  audioButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   feedbackEmoji: {
     fontSize: 40,

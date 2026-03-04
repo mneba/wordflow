@@ -1,5 +1,5 @@
 // app/(tabs)/profile.tsx
-// Perfil — dados do usuário + configurações
+// Perfil — dados do usuário + configurações + debug push
 
 import { useState, useCallback } from 'react';
 import {
@@ -12,6 +12,7 @@ import {
   Platform,
   Alert,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/context/ThemeContext';
@@ -22,6 +23,173 @@ const haptic = () => {
   if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 };
 
+// ═══════════════════════════════════════
+// PUSH DEBUG (temporário — remover depois)
+// ═══════════════════════════════════════
+function PushDebug({ userId, colors }: { userId: string | undefined; colors: any }) {
+  const [log, setLog] = useState<string[]>([]);
+  const [testing, setTesting] = useState(false);
+
+  const addLog = (msg: string) => {
+    console.log('🔧 PUSH DEBUG:', msg);
+    setLog(prev => [...prev, `${new Date().toLocaleTimeString()} ${msg}`]);
+  };
+
+  const testPush = async () => {
+    setLog([]);
+    setTesting(true);
+
+    try {
+      addLog(`Platform: ${Platform.OS}`);
+      addLog(`userId: ${userId || 'NULL'}`);
+
+      if (Platform.OS === 'web') {
+        addLog('❌ Web não suporta push');
+        setTesting(false);
+        return;
+      }
+
+      // Importar módulos
+      let Notifications: any;
+      let Device: any;
+      let Constants: any;
+
+      try {
+        Notifications = require('expo-notifications');
+        addLog('✅ expo-notifications OK');
+      } catch (e: any) {
+        addLog(`❌ expo-notifications: ${e.message}`);
+        setTesting(false);
+        return;
+      }
+
+      try {
+        Device = require('expo-device');
+        addLog(`✅ expo-device OK, isDevice: ${Device.isDevice}`);
+      } catch (e: any) {
+        addLog(`❌ expo-device: ${e.message}`);
+        setTesting(false);
+        return;
+      }
+
+      try {
+        Constants = require('expo-constants').default;
+        const pid = Constants.expoConfig?.extra?.eas?.projectId;
+        addLog(`✅ Constants OK, projectId: ${pid || 'NULL'}`);
+      } catch (e: any) {
+        addLog(`⚠️ Constants falhou: ${e.message}`);
+      }
+
+      if (!Device.isDevice) {
+        addLog('❌ Não é dispositivo físico');
+        setTesting(false);
+        return;
+      }
+
+      // Permissão
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      addLog(`Permissão atual: ${existingStatus}`);
+
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+        addLog(`Permissão solicitada: ${finalStatus}`);
+      }
+
+      if (finalStatus !== 'granted') {
+        addLog('❌ PERMISSÃO NEGADA');
+        setTesting(false);
+        return;
+      }
+      addLog('✅ Permissão OK');
+
+      // Token
+      const projectId = Constants?.expoConfig?.extra?.eas?.projectId || 'd2208f21-c6c6-4855-8032-88359cbba8f6';
+      addLog(`projectId: ${projectId}`);
+      addLog('Solicitando token...');
+
+      try {
+        const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+        const token = tokenData.data;
+        addLog(`✅ TOKEN: ${token}`);
+
+        // Salvar
+        addLog(`Salvando para userId: ${userId}`);
+        const { error } = await supabase
+          .from('users')
+          .update({ push_token: token })
+          .eq('id', userId);
+
+        if (error) {
+          addLog(`❌ Erro ao salvar: ${error.message}`);
+        } else {
+          addLog('✅ SALVO NO BANCO!');
+        }
+
+        // Verificar
+        const { data: check } = await supabase
+          .from('users')
+          .select('push_token')
+          .eq('id', userId)
+          .single();
+
+        addLog(`Verificação: ${check?.push_token || 'NULL'}`);
+
+      } catch (tokenErr: any) {
+        addLog(`❌ Erro token: ${tokenErr.message}`);
+        if (tokenErr.code) addLog(`   Code: ${tokenErr.code}`);
+      }
+
+    } catch (err: any) {
+      addLog(`❌ ERRO GERAL: ${err.message}`);
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <View style={[debugStyles.container, { backgroundColor: colors.bgCard, borderColor: colors.rose }]}>
+      <Text style={[debugStyles.title, { color: colors.rose }]}>🔧 Push Debug (temporário)</Text>
+
+      <TouchableOpacity
+        onPress={testPush}
+        disabled={testing}
+        style={[debugStyles.btn, { backgroundColor: colors.accent }]}
+      >
+        {testing
+          ? <ActivityIndicator size="small" color="#fff" />
+          : <Text style={debugStyles.btnText}>Testar Push Token</Text>
+        }
+      </TouchableOpacity>
+
+      {log.length > 0 && (
+        <View style={[debugStyles.logBox, { backgroundColor: colors.bg }]}>
+          {log.map((l, i) => (
+            <Text key={i} style={[debugStyles.logLine, {
+              color: l.includes('❌') ? colors.rose : l.includes('✅') ? colors.green : colors.text2
+            }]}>
+              {l}
+            </Text>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+const debugStyles = StyleSheet.create({
+  container: { marginBottom: 20, padding: 16, borderRadius: 14, borderWidth: 2 },
+  title: { fontSize: 14, fontWeight: '700', marginBottom: 12 },
+  btn: { paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
+  btnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  logBox: { marginTop: 12, padding: 12, borderRadius: 8 },
+  logLine: { fontSize: 11, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', lineHeight: 18 },
+});
+
+// ═══════════════════════════════════════
+// PROFILE SCREEN
+// ═══════════════════════════════════════
 export default function ProfileScreen() {
   const { colors, toggleTheme, mode } = useTheme();
   const { user, signOut, refreshProfile } = useAuth();
@@ -63,17 +231,14 @@ export default function ProfileScreen() {
     if (!user?.id) return;
     haptic();
     setSaving(true);
-
     try {
       const faixaProibida = `${horaFim}:00-${horaInicio}:00`;
       const { error } = await supabase
         .from('users')
         .update({ horarios_proibidos: [faixaProibida] })
         .eq('id', user.id);
-
       if (error) throw error;
       await refreshProfile();
-
       if (Platform.OS !== 'web') {
         Alert.alert('✅ Salvo', `Notificações entre ${horaInicio}:00 e ${horaFim}:00`);
       }
@@ -109,6 +274,9 @@ export default function ProfileScreen() {
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
+        {/* ═══ PUSH DEBUG — REMOVER DEPOIS ═══ */}
+        <PushDebug userId={user?.id} colors={colors} />
+
         {/* Avatar + Nome */}
         <View style={styles.avatarSection}>
           <View style={[styles.avatar, { backgroundColor: colors.accent }]}>
@@ -133,9 +301,7 @@ export default function ProfileScreen() {
           <Text style={[styles.statsTitle, { color: colors.text1 }]}>Seu progresso</Text>
 
           <View style={styles.statRow}>
-            <View style={styles.statIcon}>
-              <Text style={{ fontSize: 20 }}>🔥</Text>
-            </View>
+            <View style={styles.statIcon}><Text style={{ fontSize: 20 }}>🔥</Text></View>
             <View style={styles.statInfo}>
               <Text style={[styles.statValue, { color: colors.text1 }]}>
                 {diasConsecutivos} {diasConsecutivos === 1 ? 'dia' : 'dias'} seguidos
@@ -149,9 +315,7 @@ export default function ProfileScreen() {
           <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
 
           <View style={styles.statRow}>
-            <View style={styles.statIcon}>
-              <Text style={{ fontSize: 20 }}>📚</Text>
-            </View>
+            <View style={styles.statIcon}><Text style={{ fontSize: 20 }}>📚</Text></View>
             <View style={styles.statInfo}>
               <Text style={[styles.statValue, { color: colors.text1 }]}>
                 {totalFrases} frases praticadas
@@ -165,9 +329,7 @@ export default function ProfileScreen() {
           <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
 
           <View style={styles.statRow}>
-            <View style={styles.statIcon}>
-              <Text style={{ fontSize: 20 }}>🎯</Text>
-            </View>
+            <View style={styles.statIcon}><Text style={{ fontSize: 20 }}>🎯</Text></View>
             <View style={styles.statInfo}>
               <Text style={[styles.statValue, { color: colors.text1 }]}>
                 {taxaAcerto}% de acerto
@@ -267,7 +429,6 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { paddingHorizontal: 20, paddingTop: 60, paddingBottom: 20 },
 
-  // Avatar
   avatarSection: { alignItems: 'center', marginBottom: 24 },
   avatar: {
     width: 80, height: 80, borderRadius: 40,
@@ -280,10 +441,7 @@ const styles = StyleSheet.create({
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   badgeText: { fontSize: 12, fontWeight: '700' },
 
-  // Stats
-  statsCard: {
-    borderRadius: 16, padding: 18, borderWidth: 1, marginBottom: 28,
-  },
+  statsCard: { borderRadius: 16, padding: 18, borderWidth: 1, marginBottom: 28 },
   statsTitle: { fontSize: 16, fontWeight: '700', marginBottom: 14 },
   statRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 4 },
   statIcon: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
@@ -292,13 +450,9 @@ const styles = StyleSheet.create({
   statDesc: { fontSize: 12, marginTop: 2 },
   statDivider: { height: 1, marginVertical: 10 },
 
-  // Section
   sectionTitle: { fontSize: 18, fontWeight: '700', marginBottom: 14 },
 
-  // Setting card
-  settingCard: {
-    borderRadius: 16, padding: 16, borderWidth: 1, marginBottom: 12,
-  },
+  settingCard: { borderRadius: 16, padding: 16, borderWidth: 1, marginBottom: 12 },
   settingTitle: { fontSize: 15, fontWeight: '700', marginBottom: 4 },
   settingDesc: { fontSize: 13, marginBottom: 12 },
   horariosRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -309,19 +463,15 @@ const styles = StyleSheet.create({
   },
   horaLabel: { fontSize: 14, marginLeft: 2 },
   horaSeparator: { fontSize: 14, fontWeight: '600' },
-  saveBtn: {
-    borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8, marginLeft: 'auto',
-  },
+  saveBtn: { borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8, marginLeft: 'auto' },
   saveBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 
-  // Setting row
   settingRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     borderRadius: 16, padding: 16, borderWidth: 1, marginBottom: 12,
   },
   settingRowLabel: { fontSize: 15, fontWeight: '600' },
 
-  // Logout
   logoutBtn: {
     borderWidth: 1.5, borderRadius: 14, height: 48,
     justifyContent: 'center', alignItems: 'center', marginTop: 20,

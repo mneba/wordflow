@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "688079109836",
+    "project_id": "wordflow-a7324",
+    "storage_bucket": "wordflow-a7324.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:688079109836:android:1c366aa0e7ba74e2dc4c69",
+        "android_client_info": {
+          "package_name": "com.wordflow.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAUNHk0rX0HZ_scqC-zQusWpyUh0YJV0Co"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

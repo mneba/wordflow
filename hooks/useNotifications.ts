@@ -1,4 +1,6 @@
 // hooks/useNotifications.ts
+// Registra push, ouve notificações, direciona para tela correta
+
 import { useEffect, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
@@ -21,6 +23,7 @@ export function useNotifications() {
     registerForPushNotifications(user.id);
     clearBadge();
 
+    // Verificar se app foi aberto por push
     getInitialNotification().then((notification) => {
       if (notification) {
         handleNotificationAction(notification.action, notification.data);
@@ -39,12 +42,15 @@ export function useNotifications() {
 
     switch (action) {
       case 'open_phrase':
+        // Push de frase → tela dedicada
         router.push({
-          pathname: '/(tabs)/praticar',
+          pathname: '/push-phrase',
           params: {
             sessao_id: data.sessao_id || '',
             frase_id: data.frase_id || '',
-            from_push: 'true',
+            controle_envio_id: data.controle_envio_id || '',
+            ordem: data.ordem?.toString() || '1',
+            total: data.total?.toString() || '5',
           },
         });
         break;
@@ -55,7 +61,7 @@ export function useNotifications() {
         break;
 
       case 'open_progress':
-        router.push('/(tabs)/progress');
+        router.push('/(tabs)/phrases');
         break;
 
       case 'open_app':

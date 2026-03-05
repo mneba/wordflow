@@ -1,7 +1,6 @@
 // app/push-phrase.tsx
-// Tela dedicada para responder frase vinda de push notification
-// Fora das tabs - sem tab bar, experiência focada
-// Fluxo: push → abre → vê frase → responde → feedback → fecha
+// V4 - Tela dedicada para push notification
+// Frase única → responde → feedback → fecha ou pratica mais
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
@@ -11,7 +10,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Platform,
-  Dimensions,
+  ScrollView,
+  BackHandler,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Audio } from 'expo-av';
@@ -21,14 +21,11 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
   withSpring,
-  FadeIn,
   FadeInDown,
 } from 'react-native-reanimated';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/services/supabase';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const haptic = (style = Haptics.ImpactFeedbackStyle.Medium) => {
   if (Platform.OS !== 'web') Haptics.impactAsync(style);
@@ -44,8 +41,6 @@ interface FraseData {
   audio_url: string | null;
   estado: string;
   controle_envio_id: string;
-  ordem: number;
-  total: number;
 }
 
 export default function PushPhraseScreen() {
@@ -94,10 +89,8 @@ export default function PushPhraseScreen() {
         return;
       }
 
-      // Buscar dados da frase
       let fraseData: any = null;
 
-      // Tentar tabela frases
       const { data: f1 } = await supabase
         .from('frases')
         .select('id, frase, traducao, explicacao, audio_url')
@@ -107,7 +100,6 @@ export default function PushPhraseScreen() {
       if (f1) {
         fraseData = f1;
       } else {
-        // Tentar frases_tematicos
         const { data: f2 } = await supabase
           .from('frases_tematicos')
           .select('id, frase, traducao, explicacao, audio_url')
@@ -121,7 +113,6 @@ export default function PushPhraseScreen() {
         return;
       }
 
-      // Buscar estado do controle_envios
       let controleData: any = null;
       if (controleId) {
         const { data: ce } = await supabase
@@ -140,8 +131,6 @@ export default function PushPhraseScreen() {
         audio_url: fraseData.audio_url,
         estado: controleData?.estado || 'nova',
         controle_envio_id: controleId || '',
-        ordem: parseInt(params.ordem || '1'),
-        total: parseInt(params.total || '5'),
       });
 
       cardScale.value = withSpring(1, { damping: 12 });
@@ -152,7 +141,7 @@ export default function PushPhraseScreen() {
     }
   };
 
-  // Responder frase
+  // Responder
   const responder = async (sabe: boolean) => {
     if (!frase || !user?.id) return;
     haptic(sabe ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Heavy);
@@ -162,23 +151,23 @@ export default function PushPhraseScreen() {
     setEstado('feedback');
 
     try {
-      // Atualizar controle_envios
       if (frase.controle_envio_id) {
         const now = new Date().toISOString();
-        const proximaRevisao = calcularProximaRevisao(sabe);
+        const dias = sabe ? 3 : 1;
+        const prox = new Date();
+        prox.setDate(prox.getDate() + dias);
 
         await supabase
           .from('controle_envios')
           .update({
             sabe,
             data_resposta: now,
-            proxima_revisao: proximaRevisao,
+            proxima_revisao: prox.toISOString(),
             estado: sabe ? 'confirmacao' : 'aprendendo',
           })
           .eq('id', frase.controle_envio_id);
       }
 
-      // Atualizar métricas do usuário
       const updates: any = {
         total_frases_vistas: (user.total_frases_vistas || 0) + 1,
         ultima_interacao: new Date().toISOString(),
@@ -190,13 +179,6 @@ export default function PushPhraseScreen() {
     } catch (err) {
       console.error('Erro ao salvar resposta:', err);
     }
-  };
-
-  const calcularProximaRevisao = (sabe: boolean): string => {
-    const agora = new Date();
-    const dias = sabe ? 3 : 1; // simplificado - primeira revisão
-    agora.setDate(agora.getDate() + dias);
-    return agora.toISOString();
   };
 
   // Áudio
@@ -233,14 +215,9 @@ export default function PushPhraseScreen() {
     if (!audioUrl) return;
 
     try {
-      if (soundRef.current) {
-        await soundRef.current.unloadAsync();
-      }
+      if (soundRef.current) await soundRef.current.unloadAsync();
       setIsPlaying(true);
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: audioUrl },
-        { shouldPlay: true }
-      );
+      const { sound } = await Audio.Sound.createAsync({ uri: audioUrl }, { shouldPlay: true });
       soundRef.current = sound;
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.didJustFinish) {
@@ -255,14 +232,11 @@ export default function PushPhraseScreen() {
     }
   };
 
-  // Cleanup
   useEffect(() => {
-    return () => {
-      if (soundRef.current) soundRef.current.unloadAsync();
-    };
+    return () => { if (soundRef.current) soundRef.current.unloadAsync(); };
   }, []);
 
-  // Fechar e voltar
+  // Fechar → volta pra home
   const fechar = () => {
     haptic(Haptics.ImpactFeedbackStyle.Light);
     if (router.canGoBack()) {
@@ -272,43 +246,47 @@ export default function PushPhraseScreen() {
     }
   };
 
-  // Ir para sessão completa
+  // Fechar app
+  const fecharApp = () => {
+    haptic(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS === 'android') {
+      BackHandler.exitApp();
+    } else {
+      fechar();
+    }
+  };
+
+  // Praticar mais
   const praticarMais = () => {
     haptic();
     router.replace('/(tabs)/praticar');
   };
 
-  // ═══════════════════════════════════════
-  // LOADING
-  // ═══════════════════════════════════════
+  // ═══════════ LOADING ═══════════
   if (estado === 'loading') {
     return (
-      <View style={[styles.root, { backgroundColor: colors.bg }]}>
+      <View style={[styles.root, styles.center, { backgroundColor: colors.bg }]}>
         <ActivityIndicator size="large" color={colors.accent} />
       </View>
     );
   }
 
-  // ═══════════════════════════════════════
-  // ERRO
-  // ═══════════════════════════════════════
+  // ═══════════ ERRO ═══════════
   if (estado === 'erro') {
     return (
-      <View style={[styles.root, { backgroundColor: colors.bg }]}>
+      <View style={[styles.root, styles.center, { backgroundColor: colors.bg }]}>
         <Text style={{ fontSize: 48, marginBottom: 16 }}>😕</Text>
         <Text style={[styles.erroText, { color: colors.text1 }]}>
           Não foi possível carregar a frase
         </Text>
-        <TouchableOpacity onPress={fechar} style={[styles.fecharBtn, { backgroundColor: colors.accent }]}>
-          <Text style={styles.fecharBtnText}>Voltar</Text>
+        <TouchableOpacity onPress={fechar} style={[styles.btnPrimary, { backgroundColor: colors.accent }]}>
+          <Text style={styles.btnPrimaryText}>Voltar</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  // ═══════════════════════════════════════
-  // FRASE (pergunta ou feedback)
-  // ═══════════════════════════════════════
+  // ═══════════ FRASE ═══════════
   return (
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
       {/* Header */}
@@ -316,82 +294,88 @@ export default function PushPhraseScreen() {
         <TouchableOpacity onPress={fechar} style={styles.closeBtn}>
           <Text style={[styles.closeBtnText, { color: colors.text2 }]}>✕</Text>
         </TouchableOpacity>
-        <Text style={[styles.headerLabel, { color: colors.text3 }]}>
-          Frase {frase?.ordem || 1} de {frase?.total || 5}
-        </Text>
+        <Text style={[styles.headerLabel, { color: colors.accent, fontWeight: '700' }]}>WordFlow</Text>
         <View style={{ width: 40 }} />
       </View>
 
-      {/* Indicador de estado */}
-      {frase?.estado && frase.estado !== 'nova' && (
-        <Animated.View entering={FadeIn.duration(300)} style={styles.badgeRow}>
-          <View style={[styles.badge, { backgroundColor: colors.accent + '15' }]}>
-            <Text style={[styles.badgeText, { color: colors.accent }]}>
-              {frase.estado === 'aprendendo' ? '🔄 Revisão' :
-               frase.estado === 'confirmacao' ? '✓ Confirmação' :
-               frase.estado === 'manutencao' ? '💎 Manutenção' : ''}
+      {/* Conteúdo com scroll */}
+      <ScrollView
+        style={styles.scrollArea}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Card */}
+        <Animated.View style={[styles.cardArea, cardAnimStyle]}>
+          <View style={[styles.card, { backgroundColor: colors.bgCard }]}>
+
+            {/* Badge dentro do card */}
+            {frase?.estado && frase.estado !== 'nova' && (
+              <View style={[styles.badge, { backgroundColor: colors.accent + '15' }]}>
+                <Text style={[styles.badgeText, { color: colors.accent }]}>
+                  {frase.estado === 'aprendendo' ? '🔄 Revisão' :
+                   frase.estado === 'confirmacao' ? '✓ Confirmação' :
+                   frase.estado === 'manutencao' ? '💎 Manutenção' : '🆕 Nova'}
+                </Text>
+              </View>
+            )}
+
+            {/* Frase */}
+            <Text style={[styles.fraseText, { color: colors.text1 }]}>
+              {frase?.frase}
             </Text>
+
+            {/* Áudio */}
+            <TouchableOpacity
+              onPress={playAudio}
+              disabled={isGeneratingAudio}
+              style={[styles.audioBtn, {
+                backgroundColor: isPlaying ? colors.accent : colors.bgRaised,
+                borderColor: isPlaying ? colors.accent : colors.border,
+              }]}
+            >
+              {isGeneratingAudio ? (
+                <ActivityIndicator size="small" color={colors.accent} />
+              ) : (
+                <>
+                  <Text style={{ fontSize: 18 }}>{isPlaying ? '⏸' : '🔊'}</Text>
+                  <Text style={[styles.audioBtnText, { color: isPlaying ? '#fff' : colors.text2 }]}>
+                    {isPlaying ? 'Pausar' : 'Ouvir pronúncia'}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            {/* Feedback */}
+            {estado === 'feedback' && (
+              <Animated.View style={[styles.feedbackArea, feedbackAnimStyle]}>
+                <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+                <Text style={styles.feedbackEmoji}>
+                  {respondeu ? '✅' : '📘'}
+                </Text>
+                <Text style={[styles.feedbackMsg, { color: respondeu ? colors.green : colors.sky }]}>
+                  {respondeu ? 'Você já conhece essa!' : 'Anotado para revisar!'}
+                </Text>
+
+                <View style={[styles.traducaoBox, { backgroundColor: colors.bgRaised }]}>
+                  <Text style={[styles.traducaoLabel, { color: colors.text3 }]}>TRADUÇÃO</Text>
+                  <Text style={[styles.traducaoText, { color: colors.text1 }]}>
+                    {frase?.traducao}
+                  </Text>
+                  {frase?.explicacao && (
+                    <Text style={[styles.explicacaoText, { color: colors.text2 }]}>
+                      {frase.explicacao}
+                    </Text>
+                  )}
+                </View>
+              </Animated.View>
+            )}
           </View>
         </Animated.View>
-      )}
+      </ScrollView>
 
-      {/* Card da frase */}
-      <Animated.View style={[styles.cardArea, cardAnimStyle]}>
-        <View style={[styles.card, { backgroundColor: colors.bgCard }]}>
-          <Text style={[styles.fraseText, { color: colors.text1 }]}>
-            {frase?.frase}
-          </Text>
-
-          {/* Botão áudio */}
-          <TouchableOpacity
-            onPress={playAudio}
-            disabled={isGeneratingAudio}
-            style={[styles.audioBtn, {
-              backgroundColor: isPlaying ? colors.accent : colors.bgRaised,
-              borderColor: isPlaying ? colors.accent : colors.border,
-            }]}
-          >
-            {isGeneratingAudio ? (
-              <ActivityIndicator size="small" color={colors.accent} />
-            ) : (
-              <>
-                <Text style={{ fontSize: 18 }}>{isPlaying ? '⏸' : '🔊'}</Text>
-                <Text style={[styles.audioBtnText, { color: isPlaying ? '#fff' : colors.text2 }]}>
-                  {isPlaying ? 'Pausar' : 'Ouvir'}
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          {/* Feedback — tradução + explicação */}
-          {estado === 'feedback' && (
-            <Animated.View style={[styles.feedbackArea, feedbackAnimStyle]}>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-              <Text style={[styles.feedbackEmoji]}>
-                {respondeu ? '✅' : '📘'}
-              </Text>
-              <Text style={[styles.feedbackMsg, { color: respondeu ? colors.green : colors.sky }]}>
-                {respondeu ? 'Você já conhece essa!' : 'Anotado para revisar!'}
-              </Text>
-
-              <Text style={[styles.traducaoLabel, { color: colors.text3 }]}>Tradução</Text>
-              <Text style={[styles.traducaoText, { color: colors.text1 }]}>
-                {frase?.traducao}
-              </Text>
-
-              {frase?.explicacao && (
-                <Text style={[styles.explicacaoText, { color: colors.text2 }]}>
-                  {frase.explicacao}
-                </Text>
-              )}
-            </Animated.View>
-          )}
-        </View>
-      </Animated.View>
-
-      {/* Botões */}
-      <View style={styles.bottomArea}>
+      {/* Botões fixos no bottom */}
+      <View style={[styles.bottomArea, { borderTopColor: colors.border }]}>
         {estado === 'pergunta' ? (
           <Animated.View entering={FadeInDown.duration(400).delay(200)} style={styles.buttonsRow}>
             <TouchableOpacity
@@ -414,21 +398,22 @@ export default function PushPhraseScreen() {
           </Animated.View>
         ) : (
           <Animated.View entering={FadeInDown.duration(400)} style={styles.feedbackButtons}>
-            {/* Botão principal: Praticar mais */}
+            {/* Praticar mais */}
             <TouchableOpacity
               onPress={praticarMais}
-              style={[styles.praticarMaisBtn, { backgroundColor: colors.accent }]}
+              style={[styles.btnPrimary, { backgroundColor: colors.accent }]}
               activeOpacity={0.7}
             >
-              <Text style={styles.praticarMaisText}>Praticar mais</Text>
-              <Text style={styles.praticarMaisArrow}>→</Text>
+              <Text style={styles.btnPrimaryText}>Praticar mais  →</Text>
             </TouchableOpacity>
 
-            {/* Botão secundário: Fechar */}
-            <TouchableOpacity onPress={fechar} style={styles.fecharLink} activeOpacity={0.7}>
-              <Text style={[styles.fecharLinkText, { color: colors.text3 }]}>
-                Fechar · próxima frase em breve
-              </Text>
+            {/* Fechar app */}
+            <TouchableOpacity
+              onPress={fecharApp}
+              style={[styles.btnSecondary, { borderColor: colors.border }]}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.btnSecondaryText, { color: colors.text2 }]}>Fechar aplicativo</Text>
             </TouchableOpacity>
           </Animated.View>
         )}
@@ -438,53 +423,31 @@ export default function PushPhraseScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    justifyContent: 'center',
-  },
+  root: { flex: 1 },
+  center: { justifyContent: 'center', alignItems: 'center', padding: 24 },
 
   // Header
   header: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingTop: 52,
     paddingHorizontal: 20,
-    zIndex: 10,
+    paddingBottom: 8,
   },
-  closeBtn: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  closeBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
   closeBtnText: { fontSize: 22, fontWeight: '300' },
-  headerLabel: { fontSize: 13, fontWeight: '600' },
+  headerLabel: { fontSize: 16 },
 
-  // Badge
-  badgeRow: {
-    position: 'absolute',
-    top: 100,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    zIndex: 5,
-  },
-  badge: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 12 },
-  badgeText: { fontSize: 13, fontWeight: '700' },
+  // Scroll
+  scrollArea: { flex: 1 },
+  scrollContent: { flexGrow: 1, justifyContent: 'center', paddingVertical: 16 },
 
   // Card
-  cardArea: {
-    paddingHorizontal: 24,
-    marginBottom: 20,
-  },
+  cardArea: { paddingHorizontal: 20 },
   card: {
     borderRadius: 24,
-    padding: 28,
+    padding: 24,
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
@@ -492,11 +455,23 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 8,
   },
+
+  // Badge (dentro do card, flow normal)
+  badge: {
+    alignSelf: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  badgeText: { fontSize: 13, fontWeight: '700' },
+
+  // Frase
   fraseText: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '600',
     textAlign: 'center',
-    lineHeight: 34,
+    lineHeight: 32,
   },
 
   // Áudio
@@ -513,27 +488,45 @@ const styles = StyleSheet.create({
   audioBtnText: { fontSize: 14, fontWeight: '600' },
 
   // Feedback
-  feedbackArea: {
-    width: '100%',
-    alignItems: 'center',
-    marginTop: 20,
-  },
+  feedbackArea: { width: '100%', alignItems: 'center', marginTop: 20 },
   divider: { height: 1, width: '100%', marginBottom: 20 },
   feedbackEmoji: { fontSize: 32, marginBottom: 8 },
   feedbackMsg: { fontSize: 16, fontWeight: '700', marginBottom: 16 },
-  traducaoLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
-  traducaoText: { fontSize: 18, fontWeight: '500', textAlign: 'center', marginBottom: 8 },
-  explicacaoText: { fontSize: 13, fontStyle: 'italic', textAlign: 'center' },
 
-  // Botões — pergunta
+  traducaoBox: {
+    width: '100%',
+    padding: 16,
+    borderRadius: 14,
+  },
+  traducaoLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+    marginBottom: 8,
+  },
+  traducaoText: {
+    fontSize: 16,
+    fontWeight: '500',
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  explicacaoText: {
+    fontSize: 13,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 20,
+  },
+
+  // Bottom area
   bottomArea: {
-    paddingHorizontal: 24,
-    paddingBottom: 40,
+    paddingHorizontal: 20,
+    paddingBottom: 36,
+    paddingTop: 12,
+    borderTopWidth: 1,
   },
-  buttonsRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
+  buttonsRow: { flexDirection: 'row', gap: 12 },
   actionBtn: {
     flex: 1,
     flexDirection: 'row',
@@ -545,28 +538,24 @@ const styles = StyleSheet.create({
   },
   actionBtnText: { fontSize: 17, fontWeight: '700' },
 
-  // Botões — feedback
-  feedbackButtons: {
-    gap: 12,
-  },
-  praticarMaisBtn: {
-    flexDirection: 'row',
+  // Feedback buttons
+  feedbackButtons: { gap: 10 },
+  btnPrimary: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
     paddingVertical: 16,
     borderRadius: 16,
   },
-  praticarMaisText: { fontSize: 17, fontWeight: '700', color: '#fff' },
-  praticarMaisArrow: { fontSize: 18, color: '#fff' },
-  fecharLink: {
+  btnPrimaryText: { fontSize: 17, fontWeight: '700', color: '#fff' },
+  btnSecondary: {
     alignItems: 'center',
-    paddingVertical: 12,
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 16,
+    borderWidth: 1,
   },
-  fecharLinkText: { fontSize: 14 },
+  btnSecondaryText: { fontSize: 15, fontWeight: '600' },
 
   // Erro
   erroText: { fontSize: 18, fontWeight: '600', textAlign: 'center', marginBottom: 20 },
-  fecharBtn: { paddingHorizontal: 32, paddingVertical: 14, borderRadius: 14 },
-  fecharBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 });

@@ -21,7 +21,7 @@ export const nativeApplicationVersion = ExpoApplication
  * `CFBundleVersion` (set with `ios.buildNumber` value in app config in a standalone app).
  * On web, this value is `null`. The return type on Android and iOS is `string`.
  * @example
- * Android: `"114"`, iOS: `"2.11.0"`
+ * `"114"`
  */
 export const nativeBuildVersion = ExpoApplication
     ? ExpoApplication.nativeBuildVersion || null
@@ -59,7 +59,10 @@ export const applicationId = ExpoApplication
  * > for the lifetime of the user's device. See the [ANDROID_ID](https://developer.android.com/reference/android/provider/Settings.Secure.html#ANDROID_ID)
  * > official docs for more information.
  * @example
- * `"dd96dec43fb81c97"`
+ * ```ts
+ * Application.getAndroidId();
+ * // "dd96dec43fb81c97"
+ * ```
  * @platform android
  */
 export function getAndroidId() {

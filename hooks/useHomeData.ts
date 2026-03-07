@@ -1,6 +1,6 @@
 // hooks/useHomeData.ts
+// V2 - Inclui progresso de pushes do dia
 // Hook para buscar todos os dados da Home
-// Centraliza queries ao Supabase e calcula contexto do usuário
 
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/services/supabase';
@@ -21,12 +21,19 @@ export interface DiaHistorico {
   acertos: number;
   erros: number;
   total: number;
-  taxa: number; // 0-100
+  taxa: number;
 }
 
 export interface RevisaoAmanha {
   id: string;
   frase?: string;
+}
+
+export interface PushDiaStatus {
+  total: number;
+  enviados: number;
+  respondidos: number;
+  pendentes: number;
 }
 
 export interface HomeData {
@@ -37,6 +44,7 @@ export interface HomeData {
   revisoesAmanha: RevisaoAmanha[];
   historicoMes: DiaHistorico[];
   sessaoConcluidaHoje: Sessao | null;
+  pushDia: PushDiaStatus;
   contexto: ContextoUsuario;
   loading: boolean;
   error: string | null;
@@ -52,6 +60,7 @@ export function useHomeData() {
     revisoesAmanha: [],
     historicoMes: [],
     sessaoConcluidaHoje: null,
+    pushDia: { total: 0, enviados: 0, respondidos: 0, pendentes: 0 },
     contexto: {
       temSessaoAtiva: false,
       frasesRestantes: 0,
@@ -82,7 +91,6 @@ export function useHomeData() {
       inicioMes.setDate(1);
       inicioMes.setHours(0, 0, 0, 0);
 
-      // Executar todas as queries em paralelo
       const [
         cadernoRes,
         sessaoAtivaRes,
@@ -91,65 +99,70 @@ export function useHomeData() {
         revisoesHojeRes,
         revisoesAmanhaRes,
         historicoMesRes,
+        pushDiaRes,
       ] = await Promise.all([
         // 1. Caderno ativo
         user.caderno_ativo_id
-          ? supabase
-              .from('cadernos')
-              .select('*')
-              .eq('id', user.caderno_ativo_id)
-              .single()
+          ? supabase.from('cadernos').select('*').eq('id', user.caderno_ativo_id).single()
           : Promise.resolve({ data: null }),
 
         // 2. Sessão ativa
-        supabase
-          .from('sessoes')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('status', 'ativa')
-          .maybeSingle(),
+        supabase.from('sessoes').select('*').eq('user_id', user.id).eq('status', 'ativa').maybeSingle(),
 
         // 3. Sessão concluída hoje
         supabase
-          .from('sessoes')
-          .select('*')
+          .from('sessoes').select('*').eq('user_id', user.id).eq('status', 'concluida')
+          .gte('concluida_em', `${hoje}T00:00:00`).order('concluida_em', { ascending: false })
+          .limit(1).maybeSingle(),
+
+        // 4. Frases por estado
+        supabase.from('controle_envios').select('estado').eq('user_id', user.id),
+
+        // 5. Revisões hoje
+        supabase
+          .from('controle_envios').select('id').eq('user_id', user.id)
+          .lte('proxima_revisao', hoje).in('estado', ['aprendendo', 'confirmacao']),
+
+        // 6. Revisões amanhã
+        supabase
+          .from('controle_envios').select('id, frase_id').eq('user_id', user.id)
+          .eq('proxima_revisao', amanha).limit(5),
+
+        // 7. Histórico mês
+        supabase
+          .from('sessoes').select('iniciada_em, acertos, erros, total_frases')
+          .eq('user_id', user.id).eq('status', 'concluida')
+          .gte('iniciada_em', inicioMes.toISOString()),
+
+        // 8. Pushes do dia
+        supabase
+          .from('push_agendados')
+          .select('id, enviado, controle_envio_id')
           .eq('user_id', user.id)
-          .eq('status', 'concluida')
-          .gte('concluida_em', `${hoje}T00:00:00`)
-          .order('concluida_em', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
+          .eq('data_referencia', hoje),
+      ]);
 
-        // 4. Contagem de frases por estado
-        supabase
-          .from('controle_envios')
-          .select('estado')
-          .eq('user_id', user.id),
+      // Processar pushes do dia
+      const pushesHoje = pushDiaRes.data || [];
+      const pushEnviados = pushesHoje.filter((p: any) => p.enviado && !p.erro);
+      const controleIds = pushesHoje.map((p: any) => p.controle_envio_id).filter(Boolean);
 
-        // 5. Revisões para hoje
-        supabase
+      let pushRespondidos = 0;
+      if (controleIds.length > 0) {
+        const { data: respondidosData } = await supabase
           .from('controle_envios')
           .select('id')
-          .eq('user_id', user.id)
-          .lte('proxima_revisao', hoje)
-          .in('estado', ['aprendendo', 'confirmacao']),
+          .in('id', controleIds)
+          .not('data_resposta', 'is', null);
+        pushRespondidos = respondidosData?.length || 0;
+      }
 
-        // 6. Revisões para amanhã (com frase para preview)
-        supabase
-          .from('controle_envios')
-          .select('id, frase_id')
-          .eq('user_id', user.id)
-          .eq('proxima_revisao', amanha)
-          .limit(5),
-
-        // 7. Histórico do mês (sessões concluídas)
-        supabase
-          .from('sessoes')
-          .select('iniciada_em, acertos, erros, total_frases')
-          .eq('user_id', user.id)
-          .eq('status', 'concluida')
-          .gte('iniciada_em', inicioMes.toISOString()),
-      ]);
+      const pushDia: PushDiaStatus = {
+        total: pushesHoje.length,
+        enviados: pushEnviados.length,
+        respondidos: pushRespondidos,
+        pendentes: pushEnviados.length - pushRespondidos,
+      };
 
       // Processar stats de frases
       const totalCaderno = cadernoRes.data?.total_frases || 607;
@@ -168,7 +181,7 @@ export function useHomeData() {
         total: totalCaderno,
       };
 
-      // Processar histórico do mês para calendário
+      // Histórico mês
       const historicoMap = new Map<string, DiaHistorico>();
       (historicoMesRes.data || []).forEach((s: any) => {
         const dia = new Date(s.iniciada_em).toISOString().split('T')[0];
@@ -177,18 +190,13 @@ export function useHomeData() {
           existing.acertos += s.acertos || 0;
           existing.erros += s.erros || 0;
           existing.total += s.total_frases || 0;
-          existing.taxa =
-            existing.acertos + existing.erros > 0
-              ? Math.round((existing.acertos / (existing.acertos + existing.erros)) * 100)
-              : 0;
+          existing.taxa = existing.acertos + existing.erros > 0
+            ? Math.round((existing.acertos / (existing.acertos + existing.erros)) * 100) : 0;
         } else {
           const acertos = s.acertos || 0;
           const erros = s.erros || 0;
           historicoMap.set(dia, {
-            data: dia,
-            acertos,
-            erros,
-            total: s.total_frases || 0,
+            data: dia, acertos, erros, total: s.total_frases || 0,
             taxa: acertos + erros > 0 ? Math.round((acertos / (acertos + erros)) * 100) : 0,
           });
         }
@@ -198,22 +206,16 @@ export function useHomeData() {
       const sessaoAtiva = sessaoAtivaRes.data as Sessao | null;
       const sessaoConcluidaHoje = sessaoConcluidaRes.data as Sessao | null;
 
-      // Calcular dias ausente
       let diasAusente = 0;
       if (user.ultima_interacao) {
         const ultimaInteracao = new Date(user.ultima_interacao);
-        const agora = new Date();
-        diasAusente = Math.floor(
-          (agora.getTime() - ultimaInteracao.getTime()) / (1000 * 60 * 60 * 24)
-        );
+        diasAusente = Math.floor((Date.now() - ultimaInteracao.getTime()) / (1000 * 60 * 60 * 24));
       }
 
-      // Montar contexto
       const contexto: ContextoUsuario = {
         temSessaoAtiva: !!sessaoAtiva,
         frasesRestantes: sessaoAtiva
-          ? (sessaoAtiva.total_frases || 0) - (sessaoAtiva.frases_respondidas || 0)
-          : 0,
+          ? (sessaoAtiva.total_frases || 0) - (sessaoAtiva.frases_respondidas || 0) : 0,
         revisoesHoje,
         frasesNovas: Math.max(0, (user.frases_por_dia || 5) - revisoesHoje),
         diasConsecutivos: user.dias_consecutivos || 0,
@@ -221,7 +223,7 @@ export function useHomeData() {
         horasRestantes: getHorasRestantesDia(),
         diasAusente,
         revisoesAtrasadas: revisoesHoje,
-        sessaoConcluida: !!sessaoConcluidaHoje,
+        sessaoConcluida: !!sessaoConcluidaHoje && pushDia.pendentes === 0,
         isNovoUsuario: (user.total_frases_vistas || 0) === 0,
         totalDominadas: frasesStats.dominadas,
       };
@@ -231,12 +233,10 @@ export function useHomeData() {
         sessaoAtiva,
         frasesStats,
         revisoesHoje,
-        revisoesAmanha: (revisoesAmanhaRes.data || []).map((r: any) => ({
-          id: r.id,
-          frase: r.frase_id,
-        })),
+        revisoesAmanha: (revisoesAmanhaRes.data || []).map((r: any) => ({ id: r.id, frase: r.frase_id })),
         historicoMes: Array.from(historicoMap.values()),
         sessaoConcluidaHoje,
+        pushDia,
         contexto,
         loading: false,
         error: null,
@@ -247,9 +247,7 @@ export function useHomeData() {
     }
   }, [user]);
 
-  useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
   return { ...data, refresh: fetchAll };
 }

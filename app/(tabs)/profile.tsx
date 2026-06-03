@@ -3,24 +3,15 @@
 
 import { useState, useCallback } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Switch,
-  Platform,
-  Alert,
-  TextInput,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity,
+  Switch, Platform, Alert, TextInput,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/services/supabase';
 
-const haptic = () => {
-  if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-};
+const haptic = () => { if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); };
 
 export default function ProfileScreen() {
   const { colors, toggleTheme, mode } = useTheme();
@@ -31,13 +22,7 @@ export default function ProfileScreen() {
   const [audioEnabled, setAudioEnabled] = useState(user?.audio_habilitado || false);
   const [saving, setSaving] = useState(false);
 
-  const iniciais = (user?.nome || 'U')
-    .split(' ')
-    .map((p: string) => p[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
-
+  const iniciais = (user?.nome || 'U').split(' ').map((p: string) => p[0]).slice(0, 2).join('').toUpperCase();
   const nome = user?.nome || 'Estudante';
   const email = user?.email || '';
   const nivel = user?.nivel || 'basico';
@@ -47,12 +32,7 @@ export default function ProfileScreen() {
   const totalCorretas = user?.total_frases_corretas || 0;
   const taxaAcerto = totalFrases > 0 ? Math.round((totalCorretas / totalFrases) * 100) : 0;
 
-  const nivelLabel: Record<string, string> = {
-    basico: 'Básico',
-    intermediario: 'Intermediário',
-    avancado: 'Avançado',
-  };
-
+  const nivelLabel: Record<string, string> = { basico: 'Básico', intermediario: 'Intermediário', avancado: 'Avançado' };
   const statusLabel: Record<string, { text: string; color: string }> = {
     trial: { text: 'Período de teste', color: '#F59E0B' },
     ativo: { text: 'Assinante ativo', color: '#10B981' },
@@ -61,34 +41,22 @@ export default function ProfileScreen() {
 
   const handleSaveHorarios = useCallback(async () => {
     if (!user?.id) return;
-    haptic();
-    setSaving(true);
+    haptic(); setSaving(true);
     try {
       const faixaProibida = `${horaFim}:00-${horaInicio}:00`;
-      const { error } = await supabase
-        .from('users')
-        .update({ horarios_proibidos: [faixaProibida] })
-        .eq('id', user.id);
+      const { error } = await supabase.from('users').update({ horarios_proibidos: [faixaProibida] }).eq('id', user.id);
       if (error) throw error;
       await refreshProfile();
-      if (Platform.OS !== 'web') {
-        Alert.alert('✅ Salvo', `Notificações entre ${horaInicio}:00 e ${horaFim}:00`);
-      }
-    } catch (err) {
-      console.error('Erro ao salvar horários:', err);
-    } finally {
-      setSaving(false);
-    }
+      if (Platform.OS !== 'web') Alert.alert('✅ Salvo', `Notificações entre ${horaInicio}:00 e ${horaFim}:00`);
+    } catch (err) { console.error('Erro:', err); }
+    finally { setSaving(false); }
   }, [horaInicio, horaFim, user?.id, refreshProfile]);
 
   const handleToggleAudio = useCallback(async (value: boolean) => {
     if (!user?.id) return;
     setAudioEnabled(value);
-    try {
-      await supabase.from('users').update({ audio_habilitado: value }).eq('id', user.id);
-    } catch {
-      setAudioEnabled(!value);
-    }
+    try { await supabase.from('users').update({ audio_habilitado: value }).eq('id', user.id); }
+    catch { setAudioEnabled(!value); }
   }, [user?.id]);
 
   const handleLogout = useCallback(() => {
@@ -105,8 +73,6 @@ export default function ProfileScreen() {
   return (
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-
-        {/* Avatar + Nome */}
         <View style={styles.avatarSection}>
           <View style={[styles.avatar, { backgroundColor: colors.accent }]}>
             <Text style={styles.avatarText}>{iniciais}</Text>
@@ -118,118 +84,78 @@ export default function ProfileScreen() {
               <Text style={[styles.badgeText, { color: stInfo.color }]}>{stInfo.text}</Text>
             </View>
             <View style={[styles.badge, { backgroundColor: colors.accent + '20' }]}>
-              <Text style={[styles.badgeText, { color: colors.accent }]}>
-                {nivelLabel[nivel] || nivel}
-              </Text>
+              <Text style={[styles.badgeText, { color: colors.accent }]}>{nivelLabel[nivel] || nivel}</Text>
             </View>
           </View>
         </View>
 
-        {/* Resumo */}
         <View style={[styles.statsCard, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
           <Text style={[styles.statsTitle, { color: colors.text1 }]}>Seu progresso</Text>
-
           <View style={styles.statRow}>
             <View style={styles.statIcon}><Text style={{ fontSize: 20 }}>🔥</Text></View>
             <View style={styles.statInfo}>
-              <Text style={[styles.statValue, { color: colors.text1 }]}>
-                {diasConsecutivos} {diasConsecutivos === 1 ? 'dia' : 'dias'} seguidos
-              </Text>
-              <Text style={[styles.statDesc, { color: colors.text3 }]}>
-                Quantos dias você praticou sem pular nenhum
-              </Text>
+              <Text style={[styles.statValue, { color: colors.text1 }]}>{diasConsecutivos} {diasConsecutivos === 1 ? 'dia' : 'dias'} seguidos</Text>
+              <Text style={[styles.statDesc, { color: colors.text3 }]}>Quantos dias você praticou sem pular nenhum</Text>
             </View>
           </View>
-
           <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-
           <View style={styles.statRow}>
             <View style={styles.statIcon}><Text style={{ fontSize: 20 }}>📚</Text></View>
             <View style={styles.statInfo}>
-              <Text style={[styles.statValue, { color: colors.text1 }]}>
-                {totalFrases} frases praticadas
-              </Text>
-              <Text style={[styles.statDesc, { color: colors.text3 }]}>
-                Total de frases que você já respondeu
-              </Text>
+              <Text style={[styles.statValue, { color: colors.text1 }]}>{totalFrases} frases praticadas</Text>
+              <Text style={[styles.statDesc, { color: colors.text3 }]}>Total de frases que você já respondeu</Text>
             </View>
           </View>
-
           <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-
           <View style={styles.statRow}>
             <View style={styles.statIcon}><Text style={{ fontSize: 20 }}>🎯</Text></View>
             <View style={styles.statInfo}>
-              <Text style={[styles.statValue, { color: colors.text1 }]}>
-                {taxaAcerto}% de acerto
-              </Text>
-              <Text style={[styles.statDesc, { color: colors.text3 }]}>
-                Percentual de frases que você já sabia
-              </Text>
+              <Text style={[styles.statValue, { color: colors.text1 }]}>{taxaAcerto}% de acerto</Text>
+              <Text style={[styles.statDesc, { color: colors.text3 }]}>Percentual de frases que você já sabia</Text>
             </View>
           </View>
         </View>
 
-        {/* Configurações */}
         <Text style={[styles.sectionTitle, { color: colors.text1 }]}>Configurações</Text>
 
         <View style={[styles.settingCard, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
           <Text style={[styles.settingTitle, { color: colors.text1 }]}>📱 Horário de notificações</Text>
-          <Text style={[styles.settingDesc, { color: colors.text3 }]}>
-            Você receberá frases para praticar nesse período
-          </Text>
+          <Text style={[styles.settingDesc, { color: colors.text3 }]}>Você receberá frases para praticar nesse período</Text>
           <View style={styles.horariosRow}>
             <View style={styles.horaInput}>
-              <TextInput
-                style={[styles.horaText, { color: colors.text1, borderColor: colors.border }]}
-                value={horaInicio} onChangeText={setHoraInicio}
-                keyboardType="numeric" maxLength={2}
-              />
+              <TextInput style={[styles.horaText, { color: colors.text1, borderColor: colors.border }]}
+                value={horaInicio} onChangeText={setHoraInicio} keyboardType="numeric" maxLength={2} />
               <Text style={[styles.horaLabel, { color: colors.text3 }]}>:00</Text>
             </View>
             <Text style={[styles.horaSeparator, { color: colors.text2 }]}>até</Text>
             <View style={styles.horaInput}>
-              <TextInput
-                style={[styles.horaText, { color: colors.text1, borderColor: colors.border }]}
-                value={horaFim} onChangeText={setHoraFim}
-                keyboardType="numeric" maxLength={2}
-              />
+              <TextInput style={[styles.horaText, { color: colors.text1, borderColor: colors.border }]}
+                value={horaFim} onChangeText={setHoraFim} keyboardType="numeric" maxLength={2} />
               <Text style={[styles.horaLabel, { color: colors.text3 }]}>:00</Text>
             </View>
-            <TouchableOpacity
-              onPress={handleSaveHorarios} disabled={saving}
-              style={[styles.saveBtn, { backgroundColor: colors.accent }]}
-            >
+            <TouchableOpacity onPress={handleSaveHorarios} disabled={saving}
+              style={[styles.saveBtn, { backgroundColor: colors.accent }]}>
               <Text style={styles.saveBtnText}>{saving ? '...' : 'Salvar'}</Text>
             </TouchableOpacity>
           </View>
         </View>
 
         <View style={[styles.settingRow, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
-          <Text style={[styles.settingRowLabel, { color: colors.text1 }]}>
-            {mode === 'dark' ? '🌙' : '☀️'} Tema escuro
-          </Text>
-          <Switch
-            value={mode === 'dark'}
-            onValueChange={() => { haptic(); toggleTheme(); }}
+          <Text style={[styles.settingRowLabel, { color: colors.text1 }]}>{mode === 'dark' ? '🌙' : '☀️'} Tema escuro</Text>
+          <Switch value={mode === 'dark'} onValueChange={() => { haptic(); toggleTheme(); }}
             trackColor={{ false: colors.border, true: colors.accent + '60' }}
-            thumbColor={mode === 'dark' ? colors.accent : '#ccc'}
-          />
+            thumbColor={mode === 'dark' ? colors.accent : '#ccc'} />
         </View>
 
         <View style={[styles.settingRow, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
           <Text style={[styles.settingRowLabel, { color: colors.text1 }]}>🔊 Áudio de pronúncia</Text>
-          <Switch
-            value={audioEnabled} onValueChange={handleToggleAudio}
+          <Switch value={audioEnabled} onValueChange={handleToggleAudio}
             trackColor={{ false: colors.border, true: colors.accent + '60' }}
-            thumbColor={audioEnabled ? colors.accent : '#ccc'}
-          />
+            thumbColor={audioEnabled ? colors.accent : '#ccc'} />
         </View>
 
-        <TouchableOpacity
-          activeOpacity={0.7} onPress={handleLogout}
-          style={[styles.logoutBtn, { borderColor: '#EF4444' }]}
-        >
+        <TouchableOpacity activeOpacity={0.7} onPress={handleLogout}
+          style={[styles.logoutBtn, { borderColor: '#EF4444' }]}>
           <Text style={[styles.logoutText, { color: '#EF4444' }]}>Sair da conta</Text>
         </TouchableOpacity>
 
